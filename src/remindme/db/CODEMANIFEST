@@ -1,0 +1,579 @@
+Imports:
+  - Types:
+      - Settings
+    From: src/remindme/config
+
+Usages:
+  conventions: .goga/usages/conventions.md
+  sqlalchemy: .goga/usages/cooks/sqlalchemy.md
+  aiosqlite: .goga/usages/cooks/aiosqlite.md
+
+Annotations: |
+  Используй `conventions` для написания правил и тестирования кода.
+  Используй `sqlalchemy` для async-движка, сессий, PRAGMA-listener и декларативных моделей.
+  Используй `aiosqlite` для URL подключения и ограничений SQLite.
+
+  Все timestamp-поля хранятся как Text в формате ISO 8601 (UTC).
+  На каждом соединении активны PRAGMA foreign_keys=ON и journal_mode=WAL.
+  Используется async SQLAlchemy 2.x (Mapped/mapped_column); импорты внутри пакета — относительные.
+
+---
+
+"Base()":
+  location: models.py
+  annotations: |
+    Декларативный корень ORM; держит metadata всех моделей. Используется миграциями и созданием схемы.
+
+    Use `sqlalchemy` (DeclarativeBase).
+  properties:
+    "metadata -> MetaData": |
+      Реестр таблиц всех моделей; источник схемы для миграций.
+
+"User()":
+  location: models.py
+  annotations: |
+    Пользователь бота; PRIMARY KEY по telegram_user_id; цель FK для `Reminder`, `Note`, `Todo`.
+
+    Requirements:
+    - telegram_user_id — PRIMARY KEY и UNIQUE (идемпотентность регистрации при конкурентных сообщениях)
+    - timezone — NOT NULL (String(64)), валидная IANA-зона
+    - created_at_utc, updated_at_utc — NOT NULL, ISO 8601
+
+    Constraints:
+    - timestamp-поля хранятся как Text ISO 8601
+  properties:
+    "telegram_user_id -> int": |
+      PRIMARY KEY и UNIQUE; идентификатор Telegram-пользователя.
+    "timezone -> str": |
+      IANA-зона пользователя, NOT NULL (String(64)).
+    "created_at_utc -> str": |
+      Время создания, ISO 8601 UTC, NOT NULL.
+    "updated_at_utc -> str": |
+      Время последнего обновления, ISO 8601 UTC, NOT NULL.
+
+"Reminder()":
+  location: models.py
+  annotations: |
+    Одноразовое напоминание; user_id → FK на users.telegram_user_id.
+
+    Requirements:
+    - id PRIMARY KEY autoincrement; user_id NOT NULL FK
+    - text NOT NULL; remind_at_utc, next_attempt_at_utc, created_at_utc NOT NULL ISO 8601
+    - status NOT NULL: scheduled|sending|sent|cancelled|failed
+    - attempt_count NOT NULL, default 0
+    - locked_at_utc, sent_at_utc — nullable
+
+    Constraints:
+    - timestamp-поля — Text ISO 8601; FK обеспечивает IntegrityError при отсутствии user_id
+  properties:
+    "id -> int": |
+      PRIMARY KEY autoincrement.
+    "user_id -> int": |
+      FK на users.telegram_user_id, NOT NULL.
+    "text -> str": |
+      Текст напоминания, NOT NULL.
+    "remind_at_utc -> str": |
+      Момент напоминания, ISO 8601 UTC, NOT NULL.
+    "status -> str": |
+      NOT NULL: scheduled|sending|sent|cancelled|failed.
+    "attempt_count -> int": |
+      NOT NULL, default 0.
+    "next_attempt_at_utc -> str": |
+      Время следующей попытки, ISO 8601 UTC, NOT NULL.
+    "locked_at_utc -> str | None": |
+      Время захвата worker, nullable.
+    "created_at_utc -> str": |
+      Время создания, ISO 8601 UTC, NOT NULL.
+    "sent_at_utc -> str | None": |
+      Время отправки, nullable.
+
+"Note()":
+  location: models.py
+  annotations: |
+    Заметка без статуса и срока; user_id → FK на users.telegram_user_id.
+
+    Requirements:
+    - id PRIMARY KEY autoincrement; user_id NOT NULL FK; text NOT NULL; created_at_utc NOT NULL ISO 8601
+
+    Constraints:
+    - timestamp-поля — Text ISO 8601
+  properties:
+    "id -> int": |
+      PRIMARY KEY autoincrement.
+    "user_id -> int": |
+      FK на users.telegram_user_id, NOT NULL.
+    "text -> str": |
+      Текст заметки, NOT NULL.
+    "created_at_utc -> str": |
+      Время создания, ISO 8601 UTC, NOT NULL.
+
+"Todo()":
+  location: models.py
+  annotations: |
+    Задача с необязательным сроком и статусом; user_id → FK на users.telegram_user_id.
+
+    Requirements:
+    - id PRIMARY KEY autoincrement; user_id NOT NULL FK; text NOT NULL
+    - due_at_utc, completed_at_utc — nullable; created_at_utc NOT NULL ISO 8601
+    - status NOT NULL: active|completed
+
+    Constraints:
+    - timestamp-поля — Text ISO 8601
+  properties:
+    "id -> int": |
+      PRIMARY KEY autoincrement.
+    "user_id -> int": |
+      FK на users.telegram_user_id, NOT NULL.
+    "text -> str": |
+      Текст задачи, NOT NULL.
+    "due_at_utc -> str | None": |
+      Срок задачи, nullable.
+    "status -> str": |
+      NOT NULL: active|completed.
+    "created_at_utc -> str": |
+      Время создания, ISO 8601 UTC, NOT NULL.
+    "completed_at_utc -> str | None": |
+      Время завершения, nullable.
+
+"create_engine(settings: Settings) -> engine: AsyncEngine":
+  location: session.py
+  annotations: |
+    Создаёт async-движок SQLite из DATABASE_URL, включает PRAGMA и обеспечивает директорию data/.
+
+    `settings`: конфигурация (DATABASE_URL)
+    `engine`: async-движок с настроенными PRAGMA
+
+    Algorithm:
+    1. Взять DATABASE_URL из аргумента `settings`
+    2. Создать родительскую директорию файла БД (data/), если она отсутствует
+    3. Построить async-движок через create_async_engine
+    4. Зарегистрировать на движке listener события connect, выполняющий PRAGMA foreign_keys=ON и PRAGMA journal_mode=WAL
+    5. Вернуть `engine`
+
+    Requirements:
+    - data/ существует к моменту первого подключения
+    - PRAGMA применяются на каждом новом соединении
+
+    Use `sqlalchemy` (create_async_engine, event listener); `aiosqlite` (URL/директория).
+
+"create_session_factory(engine: AsyncEngine) -> factory: AsyncSessionFactory":
+  location: session.py
+  annotations: |
+    Возвращает фабрику async-сессий поверх движка.
+
+    `engine`: async-движок
+    `factory`: вызываемая фабрика (async_sessionmaker)
+
+    Algorithm:
+    1. Построить фабрику сессий через async_sessionmaker поверх `engine` с expire_on_commit=False
+    2. Вернуть `factory`
+
+    Requirements:
+    - expire_on_commit=False, чтобы объекты оставались доступны после commit
+
+    Use `sqlalchemy` (async_sessionmaker).
+
+"create_reminder(session: AsyncSession, telegram_user_id: int, text: str, remind_at_utc: datetime, now: datetime) -> reminder: Reminder":
+  location: repositories.py
+  annotations: |
+    Создаёт запись Reminder со статусом scheduled для пользователя.
+
+    `session`: открытая AsyncSession
+    `telegram_user_id`: идентификатор Telegram-пользователя (владелец)
+    `text`: текст напоминания
+    `remind_at_utc`: момент напоминания, aware UTC datetime
+    `now`: текущий момент (aware UTC) для created_at_utc
+    `reminder`: созданная и зафиксированная запись
+
+    Algorithm:
+    1. Привести `remind_at_utc` и `now` к ISO 8601 UTC строкам
+    2. Создать Reminder: user_id=`telegram_user_id`, text=`text`, remind_at_utc, status="scheduled", attempt_count=0, next_attempt_at_utc=remind_at_utc, created_at_utc=now
+    3. session.add + commit
+    4. При ошибке SQLAlchemy — rollback, залогировать ошибку (structured logging) и повторный raise
+    5. Вернуть `reminder`
+
+    Requirements:
+    - timestamp-поля сохраняются как ISO 8601 UTC строки
+    - начальные значения: status="scheduled", attempt_count=0, next_attempt_at_utc=remind_at_utc
+
+    Constraints:
+    - Откат транзакции при ошибке; пользовательский текст ошибки — централизованный handler этапа 3
+
+    Use `sqlalchemy` (add/commit/rollback); `conventions` (ISO 8601, relative imports, structured logging).
+
+"list_reminders(session: AsyncSession, user_id: int) -> reminders: list[Reminder]":
+  location: repositories.py
+  annotations: |
+    Только активные (scheduled) напоминания текущего пользователя, отсортированные по времени.
+
+    `session`: открытая AsyncSession
+    `user_id`: идентификатор Telegram-пользователя
+    `reminders`: список Reminder (не более 20)
+
+    Algorithm:
+    1. select Reminder where user_id==`user_id` and status=="scheduled", order_by remind_at_utc asc, limit 20
+    2. Вернуть list(result.scalars())
+
+    Requirements:
+    - фильтр по user_id и status="scheduled"; сортировка remind_at_utc asc; лимит 20
+
+    Constraints:
+    - запрос только по id без user_id запрещён (изоляция по владельцу)
+
+    Use `sqlalchemy` (select, scalars).
+
+"CancelOutcome(kind: str)":
+  location: repositories.py
+  annotations: |
+    Исход отмены напоминания (DTO, pydantic kw_only=True). Producer — cancel_reminder.
+
+    `kind`: вариант исхода
+
+    Requirements:
+    - pydantic с kw_only=True
+
+    Use `conventions` (kw_only).
+  properties:
+    "kind -> str": |
+      Вариант исхода: cancelled / not_found / already_sending.
+
+"cancel_reminder(session: AsyncSession, reminder_id: int, user_id: int) -> outcome: CancelOutcome":
+  location: repositories.py
+  annotations: |
+    Отмена напоминания с различимыми исходами (scheduled→cancelled / already_sending / not_found).
+
+    `session`: открытая AsyncSession
+    `reminder_id`: идентификатор записи
+    `user_id`: идентификатор Telegram-пользователя (владелец)
+    `outcome`: CancelOutcome с kind cancelled / not_found / already_sending
+
+    Algorithm:
+    1. UPDATE Reminder set status='cancelled' WHERE id=`reminder_id` AND user_id=`user_id` AND status='scheduled'
+    2. commit
+    3. Если result.rowcount == 1 — вернуть CancelOutcome(kind='cancelled')
+    4. Иначе SELECT status WHERE id AND user_id: status='sending' → 'already_sending'; иначе → 'not_found'
+
+    Requirements:
+    - фильтр (id, user_id, status='scheduled') + rowcount отличает «отменено»
+    - дополнительный select distinguishes «уже отправляется» от «не найдено»
+
+    Constraints:
+    - не раскрывает существование чужих записей (возврат not_found)
+
+    Use `sqlalchemy` (update, select, rowcount).
+
+"set_user_timezone(session: AsyncSession, telegram_user_id: int, timezone: str, now: datetime) -> updated: bool":
+  location: repositories.py
+  annotations: |
+    Смена users.timezone по владельцу.
+
+    `session`: открытая AsyncSession
+    `telegram_user_id`: идентификатор Telegram-пользователя
+    `timezone`: IANA-зона (валидирована сценарием)
+    `now`: текущий момент (aware UTC) для updated_at_utc
+    `updated`: True, если зона обновлена
+
+    Algorithm:
+    1. UPDATE User set timezone=`timezone`, updated_at_utc=now_iso WHERE telegram_user_id=`telegram_user_id`
+    2. commit
+    3. Вернуть result.rowcount == 1
+
+    Constraints:
+    - не валидирует зону (валидация IANA — в сценарии services)
+    - не двигает уже созданные напоминания (меняется только отображение)
+
+    Use `sqlalchemy` (update, rowcount); `conventions` (ISO 8601).
+
+"create_note(session: AsyncSession, telegram_user_id: int, text: str, now: datetime) -> note: Note":
+  location: repositories.py
+  annotations: |
+    Создаёт запись Note для пользователя.
+
+    `session`: открытая AsyncSession
+    `telegram_user_id`: владелец
+    `text`: текст заметки (валидирован сценарием 1–500)
+    `now`: aware UTC для created_at_utc
+    `note`: созданная и зафиксированная запись
+
+    Algorithm:
+    1. Привести `now` к ISO 8601 UTC now_iso
+    2. Создать Note(user_id=`telegram_user_id`, text=`text`, created_at_utc=now_iso)
+    3. session.add + commit
+    4. При SQLAlchemyError — rollback, structured-лог, re-raise
+    5. Вернуть `note`
+
+    Constraints:
+    - откат при ошибке; пользовательский текст — централизованный handler этапа 3
+
+    Use `sqlalchemy` (add/commit/rollback); `conventions` (ISO 8601, relative imports, structured logging).
+
+"list_notes(session: AsyncSession, user_id: int) -> notes: list[Note]":
+  location: repositories.py
+  annotations: |
+    Заметки текущего пользователя, новые сверху.
+
+    `user_id`: владелец
+    `notes`: список Note (≤20)
+
+    Algorithm:
+    1. select Note where user_id==`user_id`, order_by created_at_utc desc, limit 20
+    2. Вернуть list(result.scalars())
+
+    Constraints:
+    - запрос только по id без user_id запрещён (изоляция по владельцу)
+
+    Use `sqlalchemy` (select, scalars).
+
+"delete_note(session: AsyncSession, note_id: int, user_id: int) -> deleted: bool":
+  location: repositories.py
+  annotations: |
+    Физическое удаление заметки по (note_id, user_id).
+
+    `deleted`: True если ровно одна запись удалена
+
+    Algorithm:
+    1. delete Note where id==`note_id` and user_id==`user_id`
+    2. commit
+    3. Вернуть result.rowcount == 1
+
+    Constraints:
+    - False при не-найдено/чужой; существование чужих не раскрывается
+
+    Use `sqlalchemy` (delete, rowcount).
+
+"create_todo(session: AsyncSession, telegram_user_id: int, text: str, due_at_utc: datetime | None, now: datetime) -> todo: Todo":
+  location: repositories.py
+  annotations: |
+    Создаёт запись Todo (status="active"; срок может быть None или в прошлом).
+
+    `due_at_utc`: aware UTC (или None — без срока); past допускается
+    `todo`: созданная запись
+
+    Algorithm:
+    1. now → now_iso; due_at_utc → ISO 8601 UTC или None
+    2. Создать Todo(user_id, text, due_at_utc, status="active", created_at_utc=now_iso)
+    3. add + commit; rollback/re-raise при ошибке
+    4. Вернуть `todo`
+
+    Requirements:
+    - status="active"; due_at_utc — ISO 8601 UTC строка или None
+
+    Use `sqlalchemy`; `conventions`.
+
+"list_todos(session: AsyncSession, user_id: int) -> todos: list[Todo]":
+  location: repositories.py
+  annotations: |
+    Активные задачи: сначала со сроком (asc), затем без срока.
+
+    Algorithm:
+    1. select Todo where user_id==`user_id` and status=="active",
+       order_by due_at_utc asc NULLS LAST, created_at_utc desc, limit 20
+    2. Вернуть list(result.scalars())
+
+    Requirements:
+    - NULLS LAST (срочные раньше безсрочных); limit 20
+
+    Constraints:
+    - изоляция по user_id
+
+    Use `sqlalchemy` (select, nullslast).
+
+"list_completed(session: AsyncSession, user_id: int) -> todos: list[Todo]":
+  location: repositories.py
+  annotations: |
+    Выполненные задачи текущего пользователя.
+
+    Algorithm:
+    1. select Todo where user_id==`user_id` and status=="completed",
+       order_by completed_at_utc desc, limit 20
+    2. Вернуть list(result.scalars())
+
+    Use `sqlalchemy` (select).
+
+"complete_todo(session: AsyncSession, todo_id: int, user_id: int, now: datetime) -> completed: bool":
+  location: repositories.py
+  annotations: |
+    Переход active→completed с completed_at_utc.
+
+    `now`: aware UTC для completed_at_utc
+    `completed`: True если ровно одна active-запись завершена
+
+    Algorithm:
+    1. now → now_iso
+    2. UPDATE Todo set status='completed', completed_at_utc=now_iso
+       WHERE id==`todo_id` AND user_id==`user_id` AND status='active'
+    3. commit
+    4. Вернуть result.rowcount == 1
+
+    Constraints:
+    - повторный клик по уже completed → False; чужие записи не раскрываются
+
+    Use `sqlalchemy` (update, rowcount).
+
+"delete_todo(session: AsyncSession, todo_id: int, user_id: int) -> was_completed: bool | None":
+  location: repositories.py
+  annotations: |
+    Удаление задачи по (todo_id, user_id); возвращает статус до удаления для перерисовки списка.
+
+    `was_completed`: None = не найдено/чужая; True = была completed; False = была active
+
+    Algorithm:
+    1. Определить статус записи по (todo_id, user_id); если нет → вернуть None
+    2. Удалить запись по (todo_id, user_id)
+    3. commit
+    4. Вернуть True/False по статусу до удаления
+
+    Requirements:
+    - статус до удаления управляет целевой перерисовкой (/completed vs /todos)
+
+    Constraints:
+    - чужие записи не раскрываются (None); best-effort для UI-перерисовки
+
+    Use `sqlalchemy` (select, delete, rowcount).
+
+"find_due_reminders(session: AsyncSession, now: datetime) -> reminders: list[Reminder]":
+  location: repositories.py
+  annotations: |
+    Выбирает просроченные scheduled-напоминания для worker (без перевода статуса).
+
+    `session`: открытая AsyncSession
+    `now`: текущий момент (aware UTC)
+    `reminders`: список Reminder с next_attempt_at_utc <= now
+
+    Algorithm:
+    1. Привести `now` к ISO 8601 UTC строке now_iso
+    2. select Reminder where status=="scheduled" and next_attempt_at_utc <= now_iso
+    3. Вернуть list(result.scalars())
+
+    Requirements:
+    - сравнение next_attempt_at_utc (ISO 8601 строка) <= now_iso лексикографически корректно при фиксированном формате ISO 8601
+
+    Constraints:
+    - не переводит статус; захват записи делает `claim_for_sending`
+
+    Use `sqlalchemy` (select).
+
+"claim_for_sending(session: AsyncSession, reminder_id: int, now: datetime) -> claimed: bool":
+  location: repositories.py
+  annotations: |
+    Атомарный захват записи: scheduled→sending.
+
+    `session`: открытая AsyncSession
+    `reminder_id`: идентификатор записи
+    `now`: текущий момент (aware UTC) для locked_at_utc
+    `claimed`: True, если запись захвачена этой итерацией
+
+    Algorithm:
+    1. Привести `now` к ISO 8601 UTC строке now_iso
+    2. update Reminder set status="sending", locked_at_utc=now_iso where id==`reminder_id` and status=="scheduled"
+    3. commit
+    4. Вернуть result.rowcount == 1
+
+    Requirements:
+    - проверка status=="scheduled" в WHERE + rowcount==1 гарантирует захват ровно одной итерацией worker без отдельной блокировки
+
+    Constraints:
+    - фильтр по status обязателен — иначе две итерации цикла заберут одну запись
+
+    Use `sqlalchemy` (update, rowcount).
+
+"mark_sent(session: AsyncSession, reminder_id: int, now: datetime)":
+  location: repositories.py
+  annotations: |
+    Переводит запись в sent и проставляет время отправки (базовый путь доставки этапа 2).
+
+    `session`: открытая AsyncSession
+    `reminder_id`: идентификатор записи
+    `now`: текущий момент (aware UTC) для sent_at_utc
+
+    Algorithm:
+    1. Привести `now` к ISO 8601 UTC строке now_iso
+    2. update Reminder set status="sent", sent_at_utc=now_iso where id==`reminder_id`
+    3. commit
+
+    Requirements:
+    - проставляет status="sent" и sent_at_utc
+
+    Constraints:
+    - без повторных попыток, failed и восстановления зависших (этап 3)
+
+    Use `sqlalchemy` (update).
+
+"mark_failed(session: AsyncSession, reminder_id: int) -> marked: bool":
+  location: repositories.py
+  annotations: |
+    Переход записи sending→failed (примитив для блокировки бота и 4-й неудачи).
+
+    `session`: открытая AsyncSession
+    `reminder_id`: идентификатор записи
+    `marked`: True, если ровно одна sending-запись переведена в failed
+
+    Algorithm:
+    1. UPDATE Reminder set status='failed' WHERE id=`reminder_id` AND status='sending'
+    2. commit
+    3. Вернуть result.rowcount == 1
+
+    Constraints:
+    - не инкрементит attempt_count; используется для немедленного failed при блокировке бота
+
+    Use `sqlalchemy` (update, rowcount).
+
+"record_send_failure(session: AsyncSession, reminder_id: int, now: datetime) -> failed: bool":
+  location: repositories.py
+  annotations: |
+    Записывает неудачу отправки reminder и решает повтор или переход в failed.
+
+    `session`: открытая AsyncSession
+    `reminder_id`: идентификатор записи (status='sending')
+    `now`: текущий момент (aware UTC)
+    `failed`: True, если запись переведена в failed (4-я неудача); False — назначен повтор
+
+    Algorithm:
+    1. SELECT attempt_count WHERE id=`reminder_id` (статус отправляемой записи — 'sending')
+    2. new_count = attempt_count + 1
+    3. Если new_count >= 4 — вызвать `mark_failed` и вернуть True
+    4. Иначе: delay = {1:30, 2:120, 3:600}[new_count]; UPDATE status='scheduled',
+       attempt_count=new_count, next_attempt_at_utc=(now+delay) в ISO 8601 UTC, locked_at_utc=NULL WHERE id
+    5. commit; вернуть False
+
+    Requirements:
+    - расписание повторов 30/120/600 по attempt_count (ключ — new_count после инкремента)
+    - 4-я неудача делегирует `mark_failed`
+
+    Constraints:
+    - лог ERROR без текста записи и токена (structured logging)
+
+    Use `sqlalchemy` (update, rowcount); `conventions` (ISO 8601, structured logging).
+
+"recover_stuck_sending(session: AsyncSession, now: datetime, stale_after_seconds: int = 60) -> recovered: int":
+  location: repositories.py
+  annotations: |
+    Возвращает зависшие sending (locked_at_utc старше stale_after_seconds) в scheduled.
+
+    `session`: открытая AsyncSession
+    `now`: текущий момент (aware UTC)
+    `stale_after_seconds`: порог «зависания» (default 60)
+    `recovered`: число возвращённых записей
+
+    Algorithm:
+    1. threshold_iso = (now - `stale_after_seconds`) в ISO 8601 UTC
+    2. UPDATE Reminder set status='scheduled', locked_at_utc=NULL
+       WHERE status='sending' AND locked_at_utc <= threshold_iso
+    3. commit
+    4. Вернуть result.rowcount
+
+    Requirements:
+    - next_attempt_at_utc не пересчитывается — запись остаётся due и доставляется сразу
+
+    Constraints:
+    - вызывается ровно один раз при старте worker
+
+    Use `sqlalchemy` (update, rowcount).
+
+---
+
+Author: Goga
+CreatedAt: 29/06/26
+Description: |
+  Слой данных RemindMe: декларативные модели и async-подключение к SQLite; репозиторий напоминаний
+  (CRUD, статусные переходы, повторы/failed и восстановление зависших sending) с изоляцией по владельцу.

@@ -1,0 +1,262 @@
+Imports:
+  - Types:
+      - Reminder
+      - create_reminder
+      - cancel_reminder
+      - set_user_timezone
+      - CancelOutcome
+      - Note
+      - Todo
+      - create_note
+      - create_todo
+    Usages:
+      - repositories
+    From: src/remindme/db
+
+Usages:
+  conventions: .goga/usages/conventions.md
+  timezone: |
+    Валидация и локализация времени через stdlib zoneinfo.
+    IANA-зона: ZoneInfo(name); неизвестная — ZoneInfoNotFoundError/KeyError.
+    DST-детекция: локализация naive datetime со сравнением fold=0/fold=1
+    (расхождение utcoffset ⇒ несуществующее/неоднозначное локальное время).
+
+Annotations: |
+  Используй `conventions` для написания правил и тестирования кода.
+  Используй `repositories` из Imports для вызова create_reminder/cancel_reminder/set_user_timezone (изоляция по владельцу, ISO 8601, rowcount).
+  Используй `timezone` для локализации и DST-валидации локального времени.
+
+  Доменная логика напоминаний. Парсер `parse_remind_time` — чистая детерминированная функция без зависимостей от Telegram/БД; текущий момент фиксируется один раз и передаётся аргументом (datetime.now() внутри не вызывается). Сценарии оркестрируют парсер → репозиторий. DTO результата/ошибки — pydantic с kw_only=True. Импорты внутри пакета — относительные.
+
+  Note/todo сценарии следуют тому же паттерну; `parse_todo_input` — простой парсер срока (past допускается, без DST/горизонта).
+
+---
+
+"parse_remind_time(raw: str, now: datetime, timezone: str, default_time: str) -> result: ParsedReminder | ParseError":
+  location: parser.py
+  annotations: |
+    Чистый детерминированный парсер времени напоминания с DST-валидацией.
+
+    `raw`: исходный текст команды/фразы
+    `now`: фиксированный текущий момент (aware UTC)
+    `timezone`: IANA-зона пользователя
+    `default_time`: время по умолчанию «ЧЧ:ММ»
+    `result`: успех (UTC-момент + очищенный текст) или типизированная ошибка
+
+    Algorithm:
+    1. Зафиксировать `now`; определить режим по `raw` (/remind split по первому '|'; фраза «напомни …»)
+    2. Распознать форму времени по 5 шаблонам (re.IGNORECASE, частное→общее)
+    3. Календарная проверка через strptime (31.02 → date_not_exist)
+    4. Построить локальный naive datetime в `timezone`; локализовать через `timezone` со сравнением fold=0/fold=1:
+       попадание в весенний провал → ParseError(kind='nonexistent_time');
+       осеннее наложение → ParseError(kind='ambiguous_time'); иначе — aware UTC
+    5. Проверки границ: пустой текст → empty_text; >500 → text_too_long; remind_at<=now → past;
+       >365 дней → horizon_exceeded; не распознано → invalid_format
+    6. Вернуть ParsedReminder(remind_at_utc, text) или ParseError(kind)
+
+    Constraints:
+    - DST-проверка выполняется до проверок past/horizon
+    - горизонт > 365 дней → horizon_exceeded; remind_at <= now → past
+
+    Use `timezone` (ZoneInfo, fold); `conventions` (kw_only, parametrize).
+
+"ParsedReminder(remind_at_utc: datetime, text: str)":
+  location: parser.py
+  annotations: |
+    Результат успеха парсера.
+
+    Requirements:
+    - pydantic с kw_only=True
+
+    Use `conventions` (kw_only).
+  properties:
+    "remind_at_utc -> datetime": |
+      Aware UTC момент напоминания.
+    "text -> str": |
+      Очищенный текст напоминания без временной части.
+
+"ParseError(kind: str)":
+  location: parser.py
+  annotations: |
+    Типизированная ошибка парсера.
+
+    Requirements:
+    - pydantic с kw_only=True
+    - `kind` ∈ {invalid_format, date_not_exist, past, horizon_exceeded, empty_text, text_too_long, nonexistent_time, ambiguous_time}
+
+    Use `conventions` (kw_only).
+  properties:
+    "kind -> str": |
+      Вариант: invalid_format / date_not_exist / past / horizon_exceeded / empty_text / text_too_long
+      / nonexistent_time / ambiguous_time.
+
+"create_reminder_scenario(session: AsyncSession, telegram_user_id: int, raw: str, now: datetime, timezone: str, default_time: str) -> outcome: Reminder | ParseError":
+  location: reminders.py
+  annotations: |
+    Сценарий создания напоминания: парсер → проверка границ → сохранение.
+
+    `session`: открытая AsyncSession
+    `telegram_user_id`: идентификатор Telegram-пользователя
+    `raw`: исходный текст команды/фразы
+    `now`: фиксированный текущий момент (aware UTC)
+    `timezone`: IANA-зона пользователя
+    `default_time`: время по умолчанию «ЧЧ:ММ»
+    `outcome`: созданный Reminder или ParseError
+
+    Algorithm:
+    1. parse = parse_remind_time(`raw`, `now`, `timezone`, `default_time`)
+    2. Если parse — ParseError → вернуть его без сохранения
+    3. Если ParsedReminder → create_reminder(`session`, `telegram_user_id`, parse.text, parse.remind_at_utc, `now`)
+    4. Вернуть Reminder
+
+    Constraints:
+    - при ошибке парсинга запись не создаётся
+    - SQLAlchemyError из `create_reminder` откатывается в репозитории; пользовательский текст — централизованный handler этапа 3
+
+    Use `repositories` (`create_reminder`); `conventions`.
+
+"set_timezone_scenario(session: AsyncSession, telegram_user_id: int, timezone: str, now: datetime) -> updated: bool":
+  location: reminders.py
+  annotations: |
+    Смена часового пояса: валидация IANA + запись зоны.
+
+    `session`: открытая AsyncSession
+    `telegram_user_id`: идентификатор Telegram-пользователя
+    `timezone`: запрошенная IANA-зона
+    `now`: текущий момент (aware UTC)
+    `updated`: True, если зона изменена; False — неизвестная зона
+
+    Algorithm:
+    1. Попробовать ZoneInfo(`timezone`) (по `timezone`)
+    2. При ZoneInfoNotFoundError/KeyError/ValueError — вернуть False без обращения к БД
+    3. Иначе — set_user_timezone(`session`, `telegram_user_id`, `timezone`, `now`); вернуть результат
+
+    Requirements:
+    - валидация IANA через ZoneInfo до записи
+
+    Constraints:
+    - не двигает уже созданные напоминания
+
+    Use `timezone` (ZoneInfo); `repositories` (`set_user_timezone`); `conventions`.
+
+"cancel_reminder_scenario(session: AsyncSession, telegram_user_id: int, reminder_id: int) -> outcome: CancelOutcome":
+  location: reminders.py
+  annotations: |
+    Сценарий отмены: делегирует репозиторию, возвращает различимый исход.
+
+    `session`: открытая AsyncSession
+    `telegram_user_id`: идентификатор Telegram-пользователя
+    `reminder_id`: идентификатор записи
+    `outcome`: CancelOutcome (kind cancelled/not_found/already_sending)
+
+    Algorithm:
+    1. Вернуть `cancel_reminder`(`session`, `reminder_id`, `telegram_user_id`)
+
+    Use `repositories` (`cancel_reminder`).
+
+"NoteError(kind: str)":
+  location: notes.py
+  annotations: |
+    Ошибка note-сценария (DTO, pydantic kw_only=True). Producer — create_note_scenario.
+
+    Requirements:
+    - pydantic kw_only=True; kind ∈ {empty_text, text_too_long}
+
+    Use `conventions` (kw_only).
+  properties:
+    "kind -> str": |
+      empty_text / text_too_long.
+
+"create_note_scenario(session: AsyncSession, telegram_user_id: int, raw: str, now: datetime) -> outcome: Note | NoteError":
+  location: notes.py
+  annotations: |
+    Валидация текста 1–500 → create_note.
+
+    `raw`: исходный текст; `now`: aware UTC.
+
+    Algorithm:
+    1. text = raw.strip()
+    2. Пусто → NoteError(empty_text)
+    3. len > 500 → NoteError(text_too_long)
+    4. Иначе → `create_note`(session, telegram_user_id, text, now); вернуть Note
+
+    Constraints:
+    - при ошибке запись не создаётся; SQLAlchemyError откатывается в репозитории
+
+    Use `repositories` (`create_note`); `conventions`.
+
+"TodoError(kind: str)":
+  location: todos.py
+  annotations: |
+    Ошибка todo-сценария (DTO, pydantic kw_only=True).
+
+    Requirements:
+    - kind ∈ {invalid_format, empty_text, text_too_long}
+
+    Use `conventions` (kw_only).
+  properties:
+    "kind -> str": |
+      invalid_format / empty_text / text_too_long.
+
+"ParsedTodo(due_at_utc: datetime | None, text: str)":
+  location: todos.py
+  annotations: |
+    Результат парсинга входа задачи.
+
+    Requirements:
+    - pydantic kw_only=True
+
+    Use `conventions` (kw_only).
+  properties:
+    "due_at_utc -> datetime | None": |
+      Aware UTC срок или None (без срока).
+    "text -> str": |
+      Очищенный текст задачи.
+
+"parse_todo_input(raw: str, timezone: str) -> parsed: ParsedTodo | TodoError":
+  location: todos.py
+  annotations: |
+    Чистый парсер входа задачи: «ГГГГ-ММ-ДД ЧЧ:ММ | текст» → срок; иначе без срока.
+
+    `raw`: исходный текст; `timezone`: IANA-зона пользователя.
+
+    Algorithm:
+    1. Разделить raw по первому «|»: левая — срок, правая — текст; если «|» нет — левая пуста, текст = raw
+    2. text = (правая или raw).strip(); пусто → TodoError(empty_text)
+    3. len(text) > 500 → TodoError(text_too_long)
+    4. Если «|» был (срок присутствует): распарсить левую как «ГГГГ-ММ-ДД ЧЧ:ММ» (strptime);
+       неудача → TodoError(invalid_format); naive local → локализовать через ZoneInfo(`timezone`) → aware UTC due_at_utc
+    5. Иначе due_at_utc=None (задача без срока)
+    6. Вернуть ParsedTodo(due_at_utc, text)
+
+    Requirements:
+    - past допускается; без DST-валидации и горизонта
+    - проверки empty_text/text_too_long применяются к обеим веткам (со сроком и без срока)
+
+    Constraints:
+    - чистая функция — без datetime.now()/БД/Telegram
+
+    Use `timezone` (ZoneInfo локализация); `conventions` (kw_only, parametrize).
+
+"create_todo_scenario(session: AsyncSession, telegram_user_id: int, raw: str, now: datetime, timezone: str) -> outcome: Todo | TodoError":
+  location: todos.py
+  annotations: |
+    parse_todo_input → create_todo.
+
+    Algorithm:
+    1. parsed = `parse_todo_input`(raw, timezone)
+    2. TodoError → вернуть без сохранения
+    3. Иначе → `create_todo`(session, telegram_user_id, parsed.text, parsed.due_at_utc, now); вернуть Todo
+
+    Constraints:
+    - при ошибке парсинга запись не создаётся
+
+    Use `parse_todo_input`; `repositories` (`create_todo`); `conventions`.
+
+---
+
+Author: Goga
+CreatedAt: 29/06/26
+Description: |
+  Доменная логика напоминаний: детерминированный парсер времени (с DST-валидацией), сценарии
+  создания/отмены и смены часового пояса.

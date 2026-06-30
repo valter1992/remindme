@@ -1,0 +1,85 @@
+Imports:
+  - Types:
+      - Reminder
+      - find_due_reminders
+      - claim_for_sending
+      - mark_sent
+      - record_send_failure
+      - mark_failed
+      - recover_stuck_sending
+    Usages:
+      - repositories
+    From: src/remindme/db
+  - Types:
+      - format_notification
+    Usages:
+      - formatter
+    From: src/remindme/bot
+
+Usages:
+  conventions: .goga/usages/conventions.md
+  aiogram: .goga/usages/cooks/aiogram.md
+
+Annotations: |
+  Используй `conventions` для написания правил и тестирования кода.
+  Используй `aiogram` для Bot и send_message.
+  Используй `repositories`, `formatter` из Imports для доступа к данным и текста уведомления.
+
+  Цикл доставки уведомлений: один фоновый процесс в одном event loop с polling. Каждая итерация открывает свою сессию.
+  При старте один раз выполняется recovery зависших sending (locked_at_utc старше 60 с → scheduled). Атомарный захват
+  записи гарантирует, что две итерации не заберут одно напоминание. Неудачи send_message ретраятся по расписанию
+  30/120/600 с и эскалируются до failed после 4-й; блокировка бота пользователем (TelegramForbiddenError) переводит
+  запись в failed немедленно. Токен не логируется.
+
+---
+
+"run_reminder_worker(bot: Bot, session_factory: AsyncSessionFactory, poll_interval: int)":
+  location: notifications.py
+  annotations: |
+    Бесконечный цикл доставки просроченных напоминаний с восстановлением при старте, повторами и failed.
+
+    `bot`: экземпляр Bot для отправки
+    `session_factory`: фабрика async-сессий
+    `poll_interval`: интервал опроса, секунд
+
+    Algorithm:
+    1. Startup-recovery (один раз до цикла): открыть сессию через `session_factory`;
+       `recover_stuck_sending`(сессия, now, 60); закрыть сессию
+    2. Бесконечный цикл:
+       1. asyncio.sleep(`poll_interval`)
+       2. now = aware UTC текущего момента
+       3. Открыть сессию через `session_factory`
+       4. due = find_due_reminders(сессия, now)
+       5. Для каждого reminder в due:
+          1. Если claim_for_sending(сессия, reminder.id, now) — True:
+             1. text = format_notification(reminder)
+             2. try:
+                1. `bot`.send_message(chat_id=reminder.user_id, text=text)
+                2. mark_sent(сессия, reminder.id, now)
+             3. except TelegramForbiddenError: mark_failed(сессия, reminder.id);
+                лог WARNING (user_id, «bot blocked»)
+             4. except (иная ошибка send_message): failed=record_send_failure(сессия, reminder.id, now);
+                лог WARNING (user_id, attempt_count, код ошибки, длительность)
+          2. Закрыть сессию
+
+    Requirements:
+    - одна итерация цикла = одна сессия; recovery ровно один раз при старте
+    - блокировка бота → немедленный failed (без повторов); 4-я неудача → failed (через `record_send_failure`)
+    - просроченные активные `Reminder` (status='scheduled', next_attempt_at_utc <= now) доставляются независимо от длительности простоя
+
+    Constraints:
+    - токен и текст записи не логируются
+    - ошибка одного reminder не прерывает цикл
+    - отменённые записи не отправляются (`claim_for_sending` фильтрует status='scheduled')
+
+    Use `aiogram` (send_message, TelegramForbiddenError); `repositories` (`find_due_reminders`,
+    `claim_for_sending`, `mark_sent`, `record_send_failure`, `mark_failed`, `recover_stuck_sending`);
+    `formatter` (`format_notification`); `conventions` (structured logging).
+
+---
+
+Author: Goga
+CreatedAt: 29/06/26
+Description: |
+  Цикл доставки уведомлений: восстановление зависших sending при старте, опрос просроченных напоминаний,
+  атомарный захват, повторы 30/120/600 с эскалацией до failed и немедленный failed при блокировке бота.

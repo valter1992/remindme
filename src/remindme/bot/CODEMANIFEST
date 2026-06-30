@@ -1,0 +1,598 @@
+Imports:
+  - Types:
+      - get_settings
+    Usages:
+      - settings
+    From: src/remindme/config
+  - Types:
+      - User
+      - Reminder
+      - list_reminders
+      - CancelOutcome
+      - Note
+      - Todo
+      - list_notes
+      - list_todos
+      - list_completed
+      - complete_todo
+      - delete_note
+      - delete_todo
+    Usages:
+      - models
+      - repositories
+    From: src/remindme/db
+  - Types:
+      - create_reminder_scenario
+      - ParseError
+      - set_timezone_scenario
+      - cancel_reminder_scenario
+      - create_note_scenario
+      - create_todo_scenario
+      - NoteError
+      - TodoError
+    Usages:
+      - reminders
+      - parser
+      - notes
+      - todos
+    From: src/remindme/services
+
+Usages:
+  conventions: .goga/usages/conventions.md
+  aiogram: .goga/usages/cooks/aiogram.md
+  sqlalchemy: .goga/usages/cooks/sqlalchemy.md
+
+Annotations: |
+  Используй `conventions` для написания правил и тестирования кода.
+  Используй `aiogram` для инициализации, фильтров, handlers, errors-handler и set_my_commands.
+  Используйте `sqlalchemy` для типа SQLAlchemyError в централизованном errors-handler.
+  Используй `settings`, `models`, `repositories`, `reminders`, `parser` из Imports для контекста потребления.
+  Errors-handler регистрируется отдельно от message-handlers.
+  /cancel отменяет напоминание текущего пользователя по id (изоляция по владельцу — в сценарии).
+
+  Бот работает только в приватных чатах (`PrivateOnly`); в группах отвечает, что режим не поддерживается, и не пишет в БД.
+  Порядок регистрации handlers: командные → обработчик фразы «напомни …» → общий текстовый (`handle_text`) → `handle_group` (без фильтра) последним.
+  Фабрика сессий передаётся точкой входа в `register_handlers` и замыкается в обработчиках; текущий момент (aware UTC) фиксируется на момент вызова; токен не попадает в логи и тексты.
+  Форматирование ответов и уведомлений — в formatter.py с единой helper-функцией «aware UTC → локальная строка пользователя».
+
+  Этап 4: новые команды /note /notes /todo /todos /completed и единый callback-роутер `handle_callback` (<action>:<entity>:<id>); проверка владельца по (id, user_id) на каждом callback-действии; после действия список обновляется через editMessageText (перерисовка по статусу записи).
+
+---
+
+"PrivateOnly()":
+  location: handlers.py
+  annotations: |
+    Фильтр «только приватный чат»; отсекает сообщения из групп до любой записи в БД.
+
+    Use `aiogram` (BaseFilter).
+
+    Constraints:
+    - При chat.type, отличном от private, обработчик не выполняется и не пишет в БД
+  methods:
+    "__call__(message: Message) -> allowed: bool": |
+      Возвращает True, только если сообщение из приватного чата.
+
+      `message`: проверяемое сообщение
+      `allowed`: признак приватного чата
+
+      Algorithm:
+      1. Вернуть признак того, что `message` из приватного чата
+
+      Use `aiogram` (тип Message).
+
+"ensure_user(session: AsyncSession, telegram_user_id: int, timezone: str) -> user: User":
+  location: handlers.py
+  annotations: |
+    Идемпотентное создание или обновление `User`; общая логика регистрации для /start и авто-регистрации.
+
+    `session`: открытая AsyncSession
+    `telegram_user_id`: идентификатор Telegram-пользователя
+    `timezone`: зона нового пользователя (передаётся вызывающей стороной из настроек)
+    `user`: созданная либо существующая запись
+
+    Algorithm:
+    1. Найти `User` по `telegram_user_id`
+    2. Если записи нет — создать с `timezone`, проставить created_at_utc и updated_at_utc текущим моментом, добавить и зафиксировать
+    3. Если запись есть — обновить updated_at_utc текущим моментом и зафиксировать
+    4. Вернуть `user`
+
+    Requirements:
+    - Операция идемпотентна: повторный вызов с тем же `telegram_user_id` не создаёт дубль
+    - При конкурентной регистрации нарушение UNIQUE обрабатывается повторным поиском существующей записи
+
+    Use `models` (создание `User`); `sqlalchemy` (add/commit/rollback); `settings` (источник `timezone`).
+
+"cmd_start(message: Message)":
+  location: handlers.py
+  annotations: |
+    Обработчик /start: приветствие и краткая инструкция; делегирует регистрацию `ensure_user`.
+
+    `message`: входящее сообщение (фильтруется командой start и `PrivateOnly`)
+
+    Algorithm:
+    1. Открыть сессию через переданную фабрику сессий
+    2. Взять timezone из настроек через `get_settings`
+    3. Вызвать `ensure_user` для автора сообщения
+    4. Ответить приветствием и краткой инструкцией
+
+    Requirements:
+    - Повторный /start не дублирует запись, обновляя updated_at_utc
+
+    Use `aiogram` (Command, message.answer); `settings` (timezone); `ensure_user`.
+
+"cmd_help(message: Message)":
+  location: handlers.py
+  annotations: |
+    Обработчик /help: показывает список доступных команд (этап 1 — /start, /help).
+
+    `message`: входящее сообщение (фильтруется командой help и `PrivateOnly`)
+
+    Use `aiogram` (Command, message.answer).
+
+"handle_unknown_command(message: Message)":
+  location: handlers.py
+  annotations: |
+    Ответ на неизвестную команду: направляет к /help.
+
+    `message`: входящее сообщение (фильтруется `PrivateOnly`)
+
+    Constraints:
+    - Не пишет в БД
+
+"handle_text(message: Message)":
+  location: handlers.py
+  annotations: |
+    Общий текстовый обработчик этапа 1: авто-регистрирует пользователя и отвечает подсказкой обратиться к /help.
+
+    `message`: входящее свободное сообщение (фильтруется `PrivateOnly`, регистрируется после командных обработчиков)
+
+    Algorithm:
+    1. Открыть сессию через переданную фабрику сессий
+    2. Взять timezone из настроек через `get_settings`
+    3. Вызвать `ensure_user` для автора сообщения
+    4. Ответить подсказкой написать «напомни ...» или использовать /help
+
+    Constraints:
+    - Не создаёт напоминания/заметки/задачи (появляются на этапе 2+); только регистрирует пользователя
+
+    Use `aiogram` (message.answer); `settings` (timezone); `ensure_user`.
+
+"handle_group(message: Message)":
+  location: handlers.py
+  annotations: |
+    Ответ в неприватном чате: сообщает, что бот работает только в личных сообщениях, и не выполняет никакой записи.
+
+    `message`: входящее сообщение из неприватного чата (перехватывается последним, после приватных обработчиков)
+
+    Constraints:
+    - Не пишет в БД
+    - Отвечает фиксированным текстом о том, что режим не поддерживается
+
+    Use `aiogram` (message.answer).
+
+"cmd_remind(message: Message)":
+  location: handlers.py
+  annotations: |
+    Обработчик /remind: создаёт напоминание через сценарий создания.
+
+    `message`: входящее сообщение (фильтр команды remind и `PrivateOnly`)
+
+    Algorithm:
+    1. Открыть сессию через session_factory
+    2. user = ensure_user(сессия, message.from_user.id, `settings`.DEFAULT_TIMEZONE)
+    3. Если длина `message`.text превышает 1000 — ответить об ограничении и выйти
+    4. now = aware UTC текущего момента
+    5. outcome = create_reminder_scenario(сессия, user.telegram_user_id, message.text, now, user.timezone, `settings`.DEFAULT_REMINDER_TIME)
+    6. Если outcome — ParseError → message.answer(`format_parse_error`(outcome))
+    7. Иначе → message.answer(`format_reminder_confirmation`(outcome, user.timezone))
+
+    Constraints:
+    - при ParseError запись не создаётся
+    - лимит длины сообщения 1000; текст напоминания 500 проверяется в парсере
+
+    Use `aiogram` (Command, message.answer); `settings` (DEFAULT_REMINDER_TIME, DEFAULT_TIMEZONE); `reminders` (`create_reminder_scenario`); `parser` (ParseError); ensure_user.
+
+"cmd_reminders(message: Message)":
+  location: handlers.py
+  annotations: |
+    Обработчик /reminders: показывает активные напоминания текущего пользователя с inline-«Удалить».
+
+    `message`: входящее сообщение (фильтр команды reminders и `PrivateOnly`)
+
+    Algorithm:
+    1. Открыть сессию через session_factory
+    2. user = ensure_user(сессия, message.from_user.id, `settings`.DEFAULT_TIMEZONE)
+    3. reminders = list_reminders(сессия, user.telegram_user_id)
+    4. kb = `reminders_keyboard`([r.id for r in reminders])
+    5. message.answer(`format_reminder_list`(reminders, user.timezone), reply_markup=kb)
+
+    Requirements:
+    - список содержит только записи текущего пользователя
+
+    Use `repositories` (`list_reminders`); `format_reminder_list`; `reminders_keyboard`; `aiogram` (Command, message.answer); ensure_user.
+
+"cmd_timezone(message: Message)":
+  location: handlers.py
+  annotations: |
+    Обработчик /timezone: смена часового пояса через сценарий.
+
+    `message`: входящее сообщение (фильтр команды timezone и PrivateOnly)
+
+    Algorithm:
+    1. Открыть сессию; user = ensure_user(...)
+    2. Извлечь аргумент зоны из сообщения; если пуст — ответить подсказкой формата IANA
+    3. updated = `set_timezone_scenario`(сессия, user.telegram_user_id, аргумент, now)
+    4. updated → «часовой пояс изменён на {аргумент}»; иначе → «неизвестный пояс, используйте IANA, например Europe/Moscow»
+
+    Constraints:
+    - только приватный чат
+    - при неизвестной зоне запись не меняется
+
+    Use `aiogram` (Command, message.answer); `reminders` (`set_timezone_scenario`); ensure_user.
+
+"cmd_cancel(message: Message)":
+  location: handlers.py
+  annotations: |
+    Обработчик /cancel: отменяет напоминание текущего пользователя по id.
+
+    `message`: входящее сообщение (фильтр команды cancel и PrivateOnly)
+
+    Algorithm:
+    1. Открыть сессию; user = ensure_user(...)
+    2. Извлечь id напоминания из аргумента команды; если аргумент пуст/нечисловой — ответить подсказкой формата
+    3. outcome = `cancel_reminder_scenario`(сессия, user.telegram_user_id, id)
+    4. message.answer(`format_cancel_outcome`(outcome))
+
+    Constraints:
+    - только приватный чат; отмена только своих записей (изоляция по владельцу — в сценарии)
+
+    Use `aiogram` (Command, message.answer); `reminders` (`cancel_reminder_scenario`); ensure_user.
+
+"cmd_note(message: Message)":
+  location: handlers.py
+  annotations: |
+    Обработчик /note → создание заметки.
+
+    Algorithm:
+    1. Сессия; user=ensure_user(...)
+    2. raw=аргумент /note
+    3. outcome=`create_note_scenario`(session, user.telegram_user_id, raw, now)
+    4. NoteError → `format_note_error`; иначе → `format_note_confirmation`
+
+    Use `aiogram` (Command, message.answer); `notes`; ensure_user.
+
+"cmd_notes(message: Message)":
+  location: handlers.py
+  annotations: |
+    Список заметок + inline-«Удалить».
+
+    Algorithm:
+    1. Сессия; user=ensure_user
+    2. notes=`list_notes`
+    3. text=`format_note_list`(notes, user.timezone); kb=`notes_keyboard`([n.id…])
+    4. message.answer(text, reply_markup=kb)
+
+    Use `repositories` (`list_notes`); `format_note_list`; `notes_keyboard`; `aiogram`.
+
+"cmd_todo(message: Message)":
+  location: handlers.py
+  annotations: |
+    Обработчик /todo → создание задачи.
+
+    Algorithm:
+    1. Сессия; user=ensure_user
+    2. raw=аргумент /todo
+    3. outcome=`create_todo_scenario`(session, user.telegram_user_id, raw, now, user.timezone)
+    4. TodoError → `format_todo_error`; иначе → `format_todo_confirmation`(outcome, user.timezone)
+
+    Use `todos`; ensure_user.
+
+"cmd_todos(message: Message)":
+  location: handlers.py
+  annotations: |
+    Активные задачи + «Выполнено»/«Удалить».
+
+    Algorithm:
+    1. Сессия; user=ensure_user
+    2. todos=`list_todos`
+    3. text=`format_todo_list`; kb=`todos_keyboard`([t.id…])
+    4. message.answer(text, reply_markup=kb)
+
+    Use `list_todos`; `format_todo_list`; `todos_keyboard`.
+
+"cmd_completed(message: Message)":
+  location: handlers.py
+  annotations: |
+    Выполненные задачи + «Удалить».
+
+    Algorithm:
+    1. Сессия; user=ensure_user
+    2. todos=`list_completed`
+    3. text=`format_completed_list`; kb=`completed_keyboard`([t.id…])
+    4. message.answer(text, reply_markup=kb)
+
+    Use `list_completed`; `format_completed_list`; `completed_keyboard`.
+
+"handle_db_error(event: ErrorEvent)":
+  location: handlers.py
+  annotations: |
+    Централизованный обработчик ошибок БД: ловит SQLAlchemyError и показывает единый текст.
+    Откат транзакции НЕ выполняется здесь — его делает репозиторий до повторного raise; сессия, открытая
+    внутри обработчика, к моменту errors-handler уже закрыта контекстным менеджером.
+
+    `event`: событие ошибки aiogram (содержит исключение и update)
+
+    Algorithm:
+    1. Достать исключение из `event`
+    2. Если это не SQLAlchemyError — вернуть (пропустить, пусть обрабатывается дальше)
+    3. Лог ERROR: user_id (из update), код ошибки; без текста записи и токена
+    4. Ответить пользователю «Не удалось выполнить действие. Попробуйте ещё раз немного позже.»
+
+    Constraints:
+    - реагирует только на SQLAlchemyError
+    - НЕ делает rollback (откат — ответственность репозитория до re-raise)
+    - без токена и текста записи в логах/текстах
+
+    Use `sqlalchemy` (SQLAlchemyError); `aiogram` (errors-handler, message.answer).
+
+"handle_remind_phrase(message: Message)":
+  location: handlers.py
+  annotations: |
+    Обработчик фразы «напомни [мне] …»; регистрируется перед `handle_text`.
+
+    `message`: свободное сообщение, начинающееся с «напомни» (фильтр `PrivateOnly`, re.IGNORECASE)
+
+    Algorithm:
+    1. Если `message`.text не начинается с «напомни» (re.IGNORECASE) — пропустить
+    2. Открыть сессию; user = ensure_user(…)
+    3. Если длина `message`.text превышает 1000 — ответить об ограничение
+    4. now = aware UTC; outcome = create_reminder_scenario(сессия, user.telegram_user_id, message.text, now, user.timezone, `settings`.DEFAULT_REMINDER_TIME)
+    5. ParseError → `format_parse_error`; иначе → `format_reminder_confirmation`
+
+    Constraints:
+    - регистрируется перед `handle_text`, чтобы фраза не уходила в общий разбор
+    - неподдерживаемая форма («в пятницу вечером») → ParseError(invalid_format) → `format_parse_error` с допустимыми шаблонами
+
+    Use `aiogram` (message.answer); `settings`; `reminders`; `parser`; ensure_user.
+
+"handle_callback(callback: CallbackQuery)":
+  location: callbacks.py
+  annotations: |
+    Единый callback-роутер: разбор action:entity:id, проверка владельца, действие, editMessageText.
+
+    `callback`: CallbackQuery от inline-кнопки
+
+    Algorithm:
+    1. now=aware UTC (один раз)
+    2. Разобрать callback.data по «:»; если формат не action:entity:id (не 3 части или raw_id не int) →
+       callback.answer("Запись уже изменена или удалена.") и выйти без обращения к БД;
+       иначе record_id=int(raw_id), user_id=callback.from_user.id
+    3. Сессия (session_factory)
+    4. Ветвление action+entity:
+       - complete:todo → done=`complete_todo`(session, record_id, user_id, now); not done →
+         callback.answer("Запись уже изменена или удалена."); иначе edit_text(format_todo_list+list_todos, todos_keyboard)
+       - delete:note → deleted=`delete_note`; not deleted → "Запись уже изменена…"; иначе
+         edit_text(format_note_list+list_notes, notes_keyboard)
+       - delete:todo → was=`delete_todo`; None → "Запись уже изменена…"; иначе was True →
+         (format_completed_list+list_completed, completed_keyboard); was False → (format_todo_list+list_todos, todos_keyboard)
+       - delete:reminder → outcome=`cancel_reminder_scenario`(session, user_id, record_id);
+         already_sending → callback.answer(текст этапа 3 «уже отправляется»);
+         not_found → "Запись уже изменена…"; cancelled → edit_text(format_reminder_list+list_reminders, reminders_keyboard)
+    5. На успех — callback.answer()
+
+    Constraints:
+    - некорректный формат callback_data (не 3 части / нечисловой id) → answerCallbackQuery "Запись уже изменена или удалена." без обращения к БД
+    - проверка владельца через (record_id, user_id) в репозиториях; устаревшая/чужая кнопка →
+      answerCallbackQuery "Запись уже изменена или удалена."; чужие данные не раскрываются
+
+    Use `complete_todo`/`delete_note`/`delete_todo`/`cancel_reminder_scenario`; `list_notes`/`list_todos`/`list_completed`/`list_reminders`; `format_note_list`/`format_todo_list`/`format_completed_list`/`format_reminder_list`; `notes_keyboard`/`todos_keyboard`/`completed_keyboard`/`reminders_keyboard`; `aiogram` (callback.answer, callback.message.edit_text).
+
+"format_parse_error(error: ParseError) -> text: str":
+  location: formatter.py
+  annotations: |
+    Текст отказа по варианту ошибки парсера: шаблон и пример.
+
+    `error`: ошибка парсера
+    `text`: пользовательский текст (формат + пример / просьба будущего времени / и т.п.)
+
+    Algorithm:
+    1. По `error`.kind выбрать шаблон: существующие (invalid_format, past, horizon_exceeded,
+       empty_text, date_not_exist, text_too_long) + nonexistent_time → «такого времени не существует
+       в этот день (перевод часов), выберите другое»; ambiguous_time → «это время неоднозначно
+       (перевод часов), выберите другое»
+    2. Вернуть `text`
+
+    Use `parser` (ParseError kinds).
+
+"format_cancel_outcome(outcome: CancelOutcome) -> text: str":
+  location: formatter.py
+  annotations: |
+    Текст результата отмены по варианту исхода.
+
+    `outcome`: исход отмены (CancelOutcome)
+    `text`: пользовательский текст
+
+    Algorithm:
+    1. По `outcome`.kind выбрать текст: cancelled → «напоминание отменено»;
+       not_found → «напоминание не найдено»;
+       already_sending → «Напоминание уже отправляется и не может быть отменено.»
+    2. Вернуть `text`
+
+    Use `parser`/`reminders` (варианты `CancelOutcome`.kind; тип импортирован из db).
+
+"format_reminder_confirmation(reminder: Reminder, timezone: str) -> text: str":
+  location: formatter.py
+  annotations: |
+    Подтверждение создания в локальном времени.
+
+    `reminder`: созданное напоминание
+    `timezone`: IANA-зона пользователя
+    `text`: подтверждение с локальным временем и текстом напоминания
+
+    Algorithm:
+    1. local = `to_local_string`(reminder.remind_at_utc, `timezone`)
+    2. Вернуть подтверждение с local и reminder.text
+
+    Use `models` (Reminder).
+
+"format_reminder_list(reminders: list[Reminder], timezone: str) -> text: str":
+  location: formatter.py
+  annotations: |
+    Список активных напоминаний в локальном времени.
+
+    `reminders`: список Reminder текущего пользователя
+    `timezone`: IANA-зона пользователя
+    `text`: пронумерованный список (локальное время + текст) либо «нет напоминаний»
+
+    Algorithm:
+    1. Если `reminders` пуст — вернуть текст об отсутствии напоминаний
+    2. Для каждого reminder собрать строку: `to_local_string`(reminder.remind_at_utc, `timezone`) + reminder.text
+    3. Вернуть объединённый список
+
+    Use `models` (Reminder).
+
+"format_notification(reminder: Reminder) -> text: str":
+  location: formatter.py
+  annotations: |
+    Текст уведомления пользователю.
+
+    `reminder`: отправляемое напоминание
+    `text`: строка вида «Напоминание\n<reminder.text>»
+
+    Algorithm:
+    1. Вернуть «Напоминание» + перенос строки + reminder.text
+
+    Use `models` (Reminder).
+
+"to_local_string(utc_iso: str, timezone: str) -> text: str":
+  location: formatter.py
+  annotations: |
+    Helper: aware UTC (ISO 8601 строка из БД) → локальная строка пользователя.
+
+    `utc_iso`: момент в формате ISO 8601 UTC
+    `timezone`: IANA-зона пользователя
+    `text`: локальная строка даты/времени
+
+    Algorithm:
+    1. Распарсить `utc_iso` в aware UTC datetime
+    2. Конвертировать в ZoneInfo(`timezone`)
+    3. Отформатировать в локальную строку
+
+    Constraints:
+    - работает со строкой ISO 8601, как хранится в БД (reminder.remind_at_utc)
+    - фиксированный человекочитаемый формат локальной строки (например «DD.MM.YYYY HH:MM»), единый для всех форматтеров клетки bot
+
+"format_note_confirmation(note: Note) -> text: str":
+  location: formatter.py
+  annotations: |
+    Подтверждение создания заметки (note.text).
+
+    Use `models` (Note).
+
+"format_note_list(notes: list[Note], timezone: str) -> text: str":
+  location: formatter.py
+  annotations: |
+    Список заметок (локальное created_at + текст) либо «нет заметок».
+
+    Algorithm:
+    1. Пуст → «нет заметок»
+    2. Иначе для каждой: `to_local_string`(created_at_utc, timezone) + text
+
+    Use `to_local_string`; `models`.
+
+"format_note_error(error: NoteError) -> text: str":
+  location: formatter.py
+  annotations: |
+    Текст отказа по kind: empty_text / text_too_long.
+
+    Use `notes` (NoteError).
+
+"format_todo_confirmation(todo: Todo, timezone: str) -> text: str":
+  location: formatter.py
+  annotations: |
+    Подтверждение: текст + срок (to_local_string(due_at_utc) или «без срока»).
+
+    Use `to_local_string`; `models`.
+
+"format_todo_list(todos: list[Todo], timezone: str) -> text: str":
+  location: formatter.py
+  annotations: |
+    Активные задачи (срок локально / «без срока» + текст; просроченные видны) либо «нет задач».
+
+    Use `to_local_string`; `models`.
+
+"format_completed_list(todos: list[Todo], timezone: str) -> text: str":
+  location: formatter.py
+  annotations: |
+    Выполненные (to_local_string(completed_at_utc) + текст) либо «нет выполненных».
+
+    Use `to_local_string`; `models`.
+
+"format_todo_error(error: TodoError) -> text: str":
+  location: formatter.py
+  annotations: |
+    Текст отказа по kind: invalid_format (пример «ГГГГ-ММ-ДД ЧЧ:ММ | текст») / empty_text / text_too_long.
+
+    Use `todos` (TodoError).
+
+"notes_keyboard(note_ids: list[int]) -> kb: InlineKeyboardMarkup":
+  location: keyboards.py
+  annotations: |
+    Inline-клавиатура: ряд «Удалить» (delete:note:{id}) на каждую заметку; пустой список → None.
+
+    Constraints:
+    - callback_data = <action>:<entity>:<id> (≤64 байт); чистый билдер без БД
+
+    Use `aiogram` (InlineKeyboardMarkup, InlineKeyboardButton).
+
+"todos_keyboard(todo_ids: list[int]) -> kb: InlineKeyboardMarkup":
+  location: keyboards.py
+  annotations: |
+    Ряд «Выполнено»(complete:todo:{id}) + «Удалить»(delete:todo:{id}) на каждую активную; пустой → None.
+
+    Use `aiogram`.
+
+"completed_keyboard(todo_ids: list[int]) -> kb: InlineKeyboardMarkup":
+  location: keyboards.py
+  annotations: |
+    Ряд «Удалить»(delete:todo:{id}) на каждую выполненную; пустой → None.
+
+    Use `aiogram`.
+
+"reminders_keyboard(reminder_ids: list[int]) -> kb: InlineKeyboardMarkup":
+  location: keyboards.py
+  annotations: |
+    Ряд «Удалить»(delete:reminder:{id}) на каждое напоминание; пустой → None.
+
+    Use `aiogram`.
+
+"register_handlers(dp: Dispatcher, session_factory: AsyncSessionFactory)":
+  location: handlers.py
+  annotations: |
+    Фасад регистрации всех обработчиков в диспетчере с фильтром `PrivateOnly` и нужным порядком.
+
+    `dp`: диспетчер aiogram
+    `session_factory`: фабрика сессий, построенная точкой входа; замыкается в пишущих обработчиках для открытия сессии
+
+    Algorithm:
+    1. Шаги этапа 2 (`cmd_start`, `cmd_help`, `cmd_remind`, `cmd_reminders`, `handle_unknown_command`,
+       `handle_remind_phrase`, `handle_text`, `handle_group`)
+    2. Зарегистрировать `cmd_timezone`, `cmd_cancel` с `PrivateOnly` и фильтром команды (этап 3)
+    3. Зарегистрировать `cmd_note`, `cmd_notes`, `cmd_todo`, `cmd_todos`, `cmd_completed` с `PrivateOnly` и фильтром команды (этап 4)
+    4. Зарегистрировать `handle_callback` через dp.callback_query() (замкнув `session_factory`)
+    5. Зарегистрировать `handle_db_error` как errors-handler с фильтром SQLAlchemyError
+
+    Requirements:
+    - Командные обработчики раньше текстовых; `handle_remind_phrase` раньше `handle_text`, чтобы фраза не уходила в общий разбор
+    - `handle_group` регистрируется последним и без `PrivateOnly`, поэтому приватные сообщения поглощаются более ранними обработчиками, а групповые доходят до него
+    - `session_factory` создаётся точкой входа один раз и переиспользуется всеми пишущими обработчиками
+
+    Use `aiogram` (Dispatcher, Command, callback_query).
+
+---
+
+Author: Goga
+CreatedAt: 29/06/26
+Description: |
+  Обработчики и форматтер Telegram-бота RemindMe: команды (incl. /timezone, /cancel), фраза «напомни …»,
+  централизованный errors-handler БД, форматирование ответов и уведомлений, фильтр приватных чатов.

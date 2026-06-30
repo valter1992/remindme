@@ -1,0 +1,117 @@
+Imports:
+  - Types:
+      - get_settings
+    Usages:
+      - settings
+    From: src/remindme/config
+  - Types:
+      - create_engine
+      - create_session_factory
+    Usages:
+      - engine
+    From: src/remindme/db
+  - Types:
+      - register_handlers
+    Usages:
+      - handlers
+    From: src/remindme/bot
+  - Types:
+      - run_reminder_worker
+    Usages:
+      - running
+    From: src/remindme/worker
+
+Usages:
+  conventions: .goga/usages/conventions.md
+  aiogram: .goga/usages/cooks/aiogram.md
+  alembic: .goga/usages/cooks/alembic.md
+  deployment: .goga/usages/deployment.md
+
+Annotations: |
+  Используй `conventions` для написания правил и тестирования кода.
+  Используй `aiogram` для Bot, Dispatcher и long polling.
+  Используй `alembic` для применения миграций схемы при старте (программный upgrade head в том же процессе).
+  Используй `deployment` для упаковки и запуска через Docker Compose (точка входа `main` применяет миграции
+  в процессе до старта бота — отдельный shell-entrypoint не нужен; .env прокидывается через environment/env_file,
+  в образ не копируется).
+
+  Точка входа приложения: один процесс, запуск из venv или через docker compose up. Перед long polling применяются
+  миграции (`apply_migrations`), затем запускается worker как фоновая задача. Токен берётся из настроек и передаётся
+  в Bot; не логируется. Worker и polling работают в одном event loop; recovery зависших sending выполняется внутри worker.
+
+---
+
+"set_commands(bot: Bot)":
+  location: main.py
+  annotations: |
+    Регистрирует меню команд. Инкрементально: этап 1 (/start,/help,/remind,/reminders),
+    этап 3 (/timezone,/cancel), этап 4 (/note,/notes,/todo,/todos,/completed).
+
+    `bot`: экземпляр Bot
+
+    Algorithm:
+    1. Вызвать bot.set_my_commands со списком BotCommand для /start,/help,/remind,/reminders,
+       /timezone,/cancel,/note,/notes,/todo,/todos,/completed
+
+    Requirements:
+    - Регистрируются только команды, реализованные на текущем этапе
+
+    Use `aiogram` (set_my_commands, BotCommand).
+
+"apply_migrations()":
+  location: main.py
+  annotations: |
+    Применяет миграции схемы к настроенной БД перед стартом приложения (bootstrap полной схемы).
+
+    Algorithm:
+    1. Через `alembic` применить все миграции к head программно в текущем процессе (программный API upgrade head,
+       без вызова CLI и без порождения subprocess)
+    2. URL базы данных (DATABASE_URL) разрешается в env.py через `get_settings`; env имеет приоритет над .env
+
+    Requirements:
+    - выполняется до запуска polling и worker; создаёт полную схему (4 таблицы + индексы) одной начальной ревизией
+    - идемпотентен: повторный запуск — no-op, если схема актуальна
+
+    Constraints:
+    - не принимает URL явно — его разрешает env.py
+    - не порождает subprocess для миграций; не логирует токен и тексты записей
+    - command.upgrade синхронен: в асинхронном `main` обёртывается через asyncio.to_thread (или эквивалент),
+      чтобы не блокировать event loop; async-движок корректно применяется через run_sync в env.py
+
+    Use `alembic` (programmatic command.upgrade in-process; async env via run_sync); `conventions` (structured logging).
+
+"main()":
+  location: main.py
+  annotations: |
+    Точка входа приложения: применение миграций, сборка инфраструктуры, инициализация бота, регистрация обработчиков,
+    запуск worker и long polling.
+
+    Algorithm:
+    1. Применить миграции: `apply_migrations` (полная схема до старта)
+    2. Получить настройки через `get_settings`
+    3. Построить async-движок и фабрику сессий (`create_engine`, `create_session_factory`)
+    4. Создать бота с токеном из настроек
+    5. Создать диспетчер
+    6. Зарегистрировать обработчики через `register_handlers`, передав построенную фабрику сессий
+    7. Регистрировать меню команд через `set_commands`
+    8. Запустить цикл доставки как asyncio-задачу: `run_reminder_worker`(bot, session_factory, settings.REMINDER_POLL_INTERVAL_SECONDS)
+    9. Сбросить отложенные обновления перед стартом
+    10. Запустить long polling (worker работает параллельно в том же event loop)
+
+    Requirements:
+    - Приложение работает в одном процессе
+    - миграции применяются до запуска polling (контракт «точка входа применяет миграции перед стартом бота»)
+
+    Constraints:
+    - Токен не логируется и не попадает в тексты ошибок
+    - Worker и polling работают в одном event loop
+
+    Use `aiogram` (Bot, Dispatcher, start_polling); `apply_migrations`; `settings`; `engine`; `handlers`; `running` (run_reminder_worker).
+
+---
+
+Author: Goga
+CreatedAt: 29/06/26
+Description: |
+  Точка входа RemindMe: применение миграций, сборка инфраструктуры данных, инициализация бота, регистрация обработчиков,
+  запуск worker уведомлений (с восстановлением зависших при старте) и long polling.

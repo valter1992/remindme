@@ -1,0 +1,103 @@
+Usages:
+  conventions: .goga/usages/conventions.md
+  pydantic-settings: .goga/usages/cooks/pydantic-settings.md
+
+Annotations: |
+  Используй `conventions` для написания правил и тестирования кода.
+  Используй `pydantic-settings` для BaseSettings, SecretStr и шаблонов валидаторов.
+
+  Все настройки загружаются из файла .env и переменных окружения (env имеет приоритет).
+  Импорты внутри пакета — относительные; классы моделей — pydantic с kw_only=True.
+  Токен хранится как SecretStr и не должен попадать в repr, логи и тексты ошибок.
+
+---
+
+"Settings()":
+  location: config.py
+  annotations: |
+    Конфигурация приложения RemindMe: единственный источник настроек для всех клеток.
+    Загружается из .env/окружения через `pydantic-settings`.
+
+    `pydantic-settings` — для BaseSettings, model_config, SecretStr и валидаторов.
+    `conventions` — для pydantic kw_only=True и Google-docstrings.
+
+    Requirements:
+    - TELEGRAM_BOT_TOKEN — обязательный SecretStr (токен BotFather)
+    - DEFAULT_TIMEZONE — валидное имя IANA (по умолчанию Europe/Moscow)
+    - DEFAULT_REMINDER_TIME — строка ЧЧ:ММ (по умолчанию 09:00)
+    - REMINDER_POLL_INTERVAL_SECONDS — положительное целое (по умолчанию 5)
+    - DATABASE_URL, LOG_LEVEL — имеют значения по умолчанию
+
+    Constraints:
+    - Запуск без TELEGRAM_BOT_TOKEN, с неизвестной зоной или неверным DEFAULT_REMINDER_TIME
+      завершается понятной ошибкой, не содержащей значения токена
+  properties:
+    "TELEGRAM_BOT_TOKEN -> SecretStr": |
+      Токен Telegram-бота от BotFather; обязательный, доступ только через get_secret_value().
+    "DATABASE_URL -> str": |
+      URL подключения к SQLite (по умолчанию sqlite+aiosqlite:///data/remindme.db).
+    "DEFAULT_TIMEZONE -> str": |
+      Часовой пояс нового пользователя (по умолчанию Europe/Moscow); проверяется validate_timezone.
+    "DEFAULT_REMINDER_TIME -> str": |
+      Время напоминания по умолчанию в формате ЧЧ:ММ (по умолчанию 09:00); проверяется validate_reminder_time.
+    "REMINDER_POLL_INTERVAL_SECONDS -> int": |
+      Интервал опроса worker, секунд (по умолчанию 5); проверяется validate_poll_interval.
+    "LOG_LEVEL -> str": |
+      Уровень логирования (по умолчанию INFO).
+  methods:
+    "validate_timezone(value: str) -> validated:str": |
+      Проверяет, что значение — корректное имя IANA-зоны.
+
+      `value`: исходное значение поля DEFAULT_TIMEZONE
+
+      Algorithm:
+      1. Если `value` отсутствует в available_timezones() — поднять ValueError("unknown IANA timezone")
+      2. Дополнительно построить ZoneInfo из `value` для гарантии
+      3. Вернуть `value`
+
+      Constraints:
+      - Текст ошибки не должен содержать значение токена
+
+      Use `pydantic-settings` (шаблон _valid_timezone).
+    "validate_reminder_time(value: str) -> validated:str": |
+      Проверяет, что значение — строка ЧЧ:ММ с корректным диапазоном.
+
+      `value`: исходное значение поля DEFAULT_REMINDER_TIME
+
+      Algorithm:
+      1. Разделить `value` по ":"
+      2. Если часы не 2 цифры в 0..23 или минуты не 2 цифры в 0..59 — поднять ValueError("DEFAULT_REMINDER_TIME must be HH:MM")
+      3. Вернуть `value`
+
+      Use `pydantic-settings` (шаблон _valid_time).
+    "validate_poll_interval(value: int) -> validated:int": |
+      Запрещает ноль и отрицательные значения, чтобы цикл worker не ушёл в плотный поллинг.
+
+      `value`: исходное значение поля REMINDER_POLL_INTERVAL_SECONDS
+
+      Algorithm:
+      1. Если `value` <= 0 — поднять ValueError
+      2. Вернуть `value`
+
+"get_settings() -> settings: Settings":
+  location: config.py
+  annotations: |
+    Возвращает синглтон настроек; создание и валидация выполняются один раз при первом вызове.
+
+    `settings`: закешированный экземпляр `Settings`
+
+    Algorithm:
+    1. При первом вызове создать экземпляр `Settings` и закешировать
+    2. При последующих вызовах возвращать закешированный экземпляр
+
+    Requirements:
+    - Переменные окружения имеют приоритет над .env
+
+    Use `pydantic-settings` для точки доступа к настройкам.
+
+---
+
+Author: Goga
+CreatedAt: 29/06/26
+Description: |
+  Конфигурация приложения RemindMe: загрузка и валидация настроек из .env и окружения.
