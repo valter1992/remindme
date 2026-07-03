@@ -10,7 +10,11 @@ from aiogram.types import CallbackQuery
 
 @dp.callback_query()
 async def handle_callback(callback: CallbackQuery):
-    action, entity, raw_id = callback.data.split(":")
+    parts = callback.data.split(":")
+    # некорректный формат (не 3 части / нечисловой id) — выходим без обращения к БД
+    if len(parts) != 3 or not parts[2].isdigit():
+        return await callback.answer("Запись уже изменена или удалена.")
+    action, entity, raw_id = parts
     record_id = int(raw_id)
     user_id = callback.from_user.id
     # действие через репозиторий/сценарий с фильтром (record_id, user_id)

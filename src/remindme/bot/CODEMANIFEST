@@ -55,7 +55,7 @@ Annotations: |
   Фабрика сессий передаётся точкой входа в `register_handlers` и замыкается в обработчиках; текущий момент (aware UTC) фиксируется на момент вызова; токен не попадает в логи и тексты.
   Форматирование ответов и уведомлений — в formatter.py с единой helper-функцией «aware UTC → локальная строка пользователя».
 
-  Этап 4: новые команды /note /notes /todo /todos /completed и единый callback-роутер `handle_callback` (<action>:<entity>:<id>); проверка владельца по (id, user_id) на каждом callback-действии; после действия список обновляется через editMessageText (перерисовка по статусу записи).
+  Новые команды /note /notes /todo /todos /completed и единый callback-роутер `handle_callback` (<action>:<entity>:<id>); проверка владельца по (id, user_id) на каждом callback-действии; после действия список обновляется через editMessageText (перерисовка по статусу записи).
 
 ---
 
@@ -330,7 +330,6 @@ Annotations: |
 
     Constraints:
     - реагирует только на SQLAlchemyError
-    - НЕ делает rollback (откат — ответственность репозитория до re-raise)
     - без токена и текста записи в логах/текстах
 
     Use `sqlalchemy` (SQLAlchemyError); `aiogram` (errors-handler, message.answer).
@@ -376,7 +375,7 @@ Annotations: |
        - delete:todo → was=`delete_todo`; None → "Запись уже изменена…"; иначе was True →
          (format_completed_list+list_completed, completed_keyboard); was False → (format_todo_list+list_todos, todos_keyboard)
        - delete:reminder → outcome=`cancel_reminder_scenario`(session, user_id, record_id);
-         already_sending → callback.answer(текст этапа 3 «уже отправляется»);
+         already_sending → callback.answer("Напоминание уже отправляется и не может быть отменено.");
          not_found → "Запись уже изменена…"; cancelled → edit_text(format_reminder_list+list_reminders, reminders_keyboard)
     5. На успех — callback.answer()
 
@@ -396,8 +395,8 @@ Annotations: |
     `text`: пользовательский текст (формат + пример / просьба будущего времени / и т.п.)
 
     Algorithm:
-    1. По `error`.kind выбрать шаблон: существующие (invalid_format, past, horizon_exceeded,
-       empty_text, date_not_exist, text_too_long) + nonexistent_time → «такого времени не существует
+    1. По `error`.kind выбрать шаблон: invalid_format, past, horizon_exceeded,
+       empty_text, date_not_exist, text_too_long; nonexistent_time → «такого времени не существует
        в этот день (перевод часов), выберите другое»; ambiguous_time → «это время неоднозначно
        (перевод часов), выберите другое»
     2. Вернуть `text`
@@ -475,12 +474,12 @@ Annotations: |
 
     Algorithm:
     1. Распарсить `utc_iso` в aware UTC datetime
-    2. Конвертировать в ZoneInfo(`timezone`)
+    2. Конвертировать в целевую IANA-зону (`timezone`)
     3. Отформатировать в локальную строку
 
     Constraints:
     - работает со строкой ISO 8601, как хранится в БД (reminder.remind_at_utc)
-    - фиксированный человекочитаемый формат локальной строки (например «DD.MM.YYYY HH:MM»), единый для всех форматтеров клетки bot
+    - фиксированный человекочитаемый формат локальной строки «DD.MM.YYYY HH:MM», единый для всех форматтеров клетки bot
 
 "format_note_confirmation(note: Note) -> text: str":
   location: formatter.py

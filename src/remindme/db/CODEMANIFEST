@@ -64,7 +64,7 @@ Annotations: |
     - locked_at_utc, sent_at_utc — nullable
 
     Constraints:
-    - timestamp-поля — Text ISO 8601; FK обеспечивает IntegrityError при отсутствии user_id
+    - FK обеспечивает IntegrityError при отсутствии user_id
   properties:
     "id -> int": |
       PRIMARY KEY autoincrement.
@@ -94,9 +94,6 @@ Annotations: |
 
     Requirements:
     - id PRIMARY KEY autoincrement; user_id NOT NULL FK; text NOT NULL; created_at_utc NOT NULL ISO 8601
-
-    Constraints:
-    - timestamp-поля — Text ISO 8601
   properties:
     "id -> int": |
       PRIMARY KEY autoincrement.
@@ -116,9 +113,6 @@ Annotations: |
     - id PRIMARY KEY autoincrement; user_id NOT NULL FK; text NOT NULL
     - due_at_utc, completed_at_utc — nullable; created_at_utc NOT NULL ISO 8601
     - status NOT NULL: active|completed
-
-    Constraints:
-    - timestamp-поля — Text ISO 8601
   properties:
     "id -> int": |
       PRIMARY KEY autoincrement.
@@ -193,7 +187,6 @@ Annotations: |
     5. Вернуть `reminder`
 
     Requirements:
-    - timestamp-поля сохраняются как ISO 8601 UTC строки
     - начальные значения: status="scheduled", attempt_count=0, next_attempt_at_utc=remind_at_utc
 
     Constraints:

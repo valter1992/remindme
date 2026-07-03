@@ -26,13 +26,17 @@ Annotations: |
   Используй `repositories` из Imports для вызова create_reminder/cancel_reminder/set_user_timezone (изоляция по владельцу, ISO 8601, rowcount).
   Используй `timezone` для локализации и DST-валидации локального времени.
 
-  Доменная логика напоминаний. Парсер `parse_remind_time` — чистая детерминированная функция без зависимостей от Telegram/БД; текущий момент фиксируется один раз и передаётся аргументом (datetime.now() внутри не вызывается). Сценарии оркестрируют парсер → репозиторий. DTO результата/ошибки — pydantic с kw_only=True. Импорты внутри пакета — относительные.
+  Доменная логика напоминаний:
+
+  - `parse_remind_time` — чистая детерминированная функция без зависимостей от Telegram/БД; текущий момент фиксируется один раз и передаётся аргументом (datetime.now() внутри не вызывается)
+  - сценарии оркестрируют парсер → репозиторий
+  - DTO результата/ошибки и внутри-пакетные импорты — по `conventions` (kw_only, relative imports)
 
   Note/todo сценарии следуют тому же паттерну; `parse_todo_input` — простой парсер срока (past допускается, без DST/горизонта).
 
 ---
 
-"parse_remind_time(raw: str, now: datetime, timezone: str, default_time: str) -> result: ParsedReminder | ParseError":
+"parse_remind_time(raw: str, now: datetime, timezone: str, default_time: str) -> parsed: ParsedReminder | ParseError":
   location: parser.py
   annotations: |
     Чистый детерминированный парсер времени напоминания с DST-валидацией.
@@ -41,17 +45,17 @@ Annotations: |
     `now`: фиксированный текущий момент (aware UTC)
     `timezone`: IANA-зона пользователя
     `default_time`: время по умолчанию «ЧЧ:ММ»
-    `result`: успех (UTC-момент + очищенный текст) или типизированная ошибка
+    `parsed`: успех (UTC-момент + очищенный текст) или типизированная ошибка
 
     Algorithm:
     1. Зафиксировать `now`; определить режим по `raw` (/remind split по первому '|'; фраза «напомни …»)
-    2. Распознать форму времени по 5 шаблонам (re.IGNORECASE, частное→общее)
+    2. Распознать форму времени по 5 шаблонам (re.IGNORECASE, частное→общее); не распознано → ParseError(kind='invalid_format')
     3. Календарная проверка через strptime (31.02 → date_not_exist)
     4. Построить локальный naive datetime в `timezone`; локализовать через `timezone` со сравнением fold=0/fold=1:
        попадание в весенний провал → ParseError(kind='nonexistent_time');
        осеннее наложение → ParseError(kind='ambiguous_time'); иначе — aware UTC
-    5. Проверки границ: пустой текст → empty_text; >500 → text_too_long; remind_at<=now → past;
-       >365 дней → horizon_exceeded; не распознано → invalid_format
+    5. Проверки текста и границ: пустой текст → empty_text; >500 → text_too_long; remind_at<=now → past;
+       >365 дней → horizon_exceeded
     6. Вернуть ParsedReminder(remind_at_utc, text) или ParseError(kind)
 
     Constraints:
@@ -82,7 +86,6 @@ Annotations: |
 
     Requirements:
     - pydantic с kw_only=True
-    - `kind` ∈ {invalid_format, date_not_exist, past, horizon_exceeded, empty_text, text_too_long, nonexistent_time, ambiguous_time}
 
     Use `conventions` (kw_only).
   properties:
@@ -111,7 +114,7 @@ Annotations: |
 
     Constraints:
     - при ошибке парсинга запись не создаётся
-    - SQLAlchemyError из `create_reminder` откатывается в репозитории; пользовательский текст — централизованный handler этапа 3
+    - SQLAlchemyError из `create_reminder` откатывается в репозитории; пользовательский текст — централизованный handler
 
     Use `repositories` (`create_reminder`); `conventions`.
 
@@ -160,7 +163,7 @@ Annotations: |
     Ошибка note-сценария (DTO, pydantic kw_only=True). Producer — create_note_scenario.
 
     Requirements:
-    - pydantic kw_only=True; kind ∈ {empty_text, text_too_long}
+    - pydantic kw_only=True
 
     Use `conventions` (kw_only).
   properties:
@@ -191,7 +194,7 @@ Annotations: |
     Ошибка todo-сценария (DTO, pydantic kw_only=True).
 
     Requirements:
-    - kind ∈ {invalid_format, empty_text, text_too_long}
+    - pydantic kw_only=True
 
     Use `conventions` (kw_only).
   properties:

@@ -3,7 +3,12 @@
 Домен: CRUD и статусные переходы напоминаний через `AsyncSession` с изоляцией по владельцу.
 Аудитория: клетка `services` (`create_reminder`, `cancel_reminder`, `set_user_timezone`), клетка `bot` (`list_reminders`), клетка `worker` (`find_due_reminders`, `claim_for_sending`, `mark_sent`, `record_send_failure`, `mark_failed`, `recover_stuck_sending`).
 
-Все операции принимают открытую `AsyncSession`. Каждая операция фильтруется одновременно по `user_id` (владельцу) и статусу; поиск/изменение только по `id` запрещён. Timestamp-поля — строки ISO 8601 UTC. Возврат `rowcount` (через `result.rowcount == 1`) отличает «успех» от «не найдено/не владельцу», не раскрывая чужие данные.
+Общие инварианты репозитория:
+
+- Все операции принимают открытую `AsyncSession`.
+- Каждая операция фильтруется одновременно по `user_id` (владельцу) и статусу; поиск/изменение только по `id` запрещён.
+- Timestamp-поля — строки ISO 8601 UTC.
+- Возврат `rowcount` (через `result.rowcount == 1`) отличает «успех» от «не найдено/не владельцу», не раскрывая чужие данные.
 
 ## Создание напоминания
 
@@ -95,8 +100,7 @@ outcome = await cancel_reminder(session=session, reminder_id=reminder_id, user_i
 ```
 
 - `set_user_timezone` не двигает уже созданные напоминания — меняется только отображение (UTC-момент хранится).
-- `cancel_reminder` отличает «отменено» (`cancelled`), «не найдено/не владельцу» (`not_found`) и «уже отправляется»
-  (`already_sending`, запись в статусе `sending`); чужие записи не раскрываются.
+- `cancel_reminder` возвращает различимый исход `CancelOutcome` (см. раздел «Отмена»); чужие записи не раскрываются.
 
 ## Заметки — CRUD по владельцу (этап 4)
 

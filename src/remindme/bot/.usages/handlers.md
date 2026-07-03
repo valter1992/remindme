@@ -5,7 +5,7 @@
 
 Все пишущие обработчики фильтруются `PrivateOnly` (только приватные чаты). Регистрация инкапсулирована в `register_handlers`: командные обработчики регистрируются раньше текстовых; обработчик фразы «напомни …» — перед общим `handle_text`, чтобы фраза не уходила в общий разбор; последним без `PrivateOnly` регистрируется `handle_group`.
 
-## Регистрация (этап 2)
+## Регистрация
 
 ```python
 from aiogram import Dispatcher
@@ -31,7 +31,7 @@ register_handlers(dp, session_factory)
 - Командные обработчики раньше текстовых; `handle_remind_phrase` раньше `handle_text`; `handle_group` последним без `PrivateOnly`.
 - `session_factory` строится точкой входа один раз и переиспользуется всеми пишущими обработчиками.
 
-## Смена часового пояса и централизованная обработка ошибок — этап 3
+## Смена часового пояса и централизованная обработка ошибок
 
 ```python
 from aiogram.filters import Command
@@ -85,7 +85,7 @@ async def cmd_cancel(message: Message):
 
 - `/cancel` регистрируется с `PrivateOnly` + `Command`; изоляция по владельцу — в `cancel_reminder_scenario`.
 
-## Команды заметок/задач и callback-роутер — этап 4
+## Команды заметок/задач и callback-роутер
 
 `register_handlers` дополнительно регистрирует (PrivateOnly + Command): `cmd_note`, `cmd_notes`, `cmd_todo`, `cmd_todos`, `cmd_completed`; и `handle_callback` через `dp.callback_query()`. Командные обработчики остаются раньше текстовых; `session_factory` переиспользуется.
 
