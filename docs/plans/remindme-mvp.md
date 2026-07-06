@@ -301,10 +301,10 @@ line-length по ruff-умолчанию, `[project.optional-dependencies].test`
 
 **CRITICAL: `CODEMANIFEST` files — read-only.**
 
-- [ ] Создать `src/remindme/config/__init__.py` (docstring, `__all__: list[str] = []`).
-- [ ] Создать `tests/config/__init__.py`.
-- [ ] Verify: `python -c "import remindme.config"` (импорт пакета проходит; сущностей пока нет).
-- [ ] Lint: `ruff check src/remindme/config/`.
+- [x] Создать `src/remindme/config/__init__.py` (docstring, `__all__: list[str] = []`).
+- [x] Создать `tests/config/__init__.py`.
+- [x] Verify: `python -c "import remindme.config"` (импорт пакета проходит; сущностей пока нет).
+- [x] Lint: `ruff check src/remindme/config/`.
 
 ---
 
