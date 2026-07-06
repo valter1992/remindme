@@ -344,10 +344,10 @@ importability пакета до реализации сущностей. Тес�
 
 **CRITICAL: `CODEMANIFEST` files — read-only.**
 
-- [ ] Создать `src/remindme/db/__init__.py` (docstring, `__all__: list[str] = []`).
-- [ ] Создать `tests/db/__init__.py`.
-- [ ] Verify: `python -c "import remindme.db"`.
-- [ ] Lint: `ruff check src/remindme/db/`.
+- [x] Создать `src/remindme/db/__init__.py` (docstring, `__all__: list[str] = []`).
+- [x] Создать `tests/db/__init__.py`.
+- [x] Verify: `python -c "import remindme.db"`.
+- [x] Lint: `ruff check src/remindme/db/`.
 
 ---
 
