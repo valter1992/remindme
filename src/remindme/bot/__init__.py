@@ -22,6 +22,15 @@ from .formatter import (
     format_todo_list,
     to_local_string,
 )
+from .handlers import (
+    PrivateOnly,
+    cmd_help,
+    cmd_start,
+    ensure_user,
+    handle_group,
+    handle_text,
+    handle_unknown_command,
+)
 from .keyboards import (
     completed_keyboard,
     notes_keyboard,
@@ -30,7 +39,11 @@ from .keyboards import (
 )
 
 __all__ = [
+    "PrivateOnly",
+    "cmd_help",
+    "cmd_start",
     "completed_keyboard",
+    "ensure_user",
     "format_cancel_outcome",
     "format_completed_list",
     "format_notification",
@@ -43,6 +56,9 @@ __all__ = [
     "format_todo_confirmation",
     "format_todo_error",
     "format_todo_list",
+    "handle_group",
+    "handle_text",
+    "handle_unknown_command",
     "notes_keyboard",
     "reminders_keyboard",
     "to_local_string",

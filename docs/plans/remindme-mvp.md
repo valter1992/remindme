@@ -661,15 +661,15 @@ DTO `ParsedReminder`/`ParseError` — pydantic `kw_only`. `now` — параме
 
 **CRITICAL: `CODEMANIFEST` files — read-only. Контракт: handlers.py (core+phase1); `ensure_user` принимает `now`.**
 
-- [ ] **Task declaration**: Task 18 (`bot` — handlers core+phase1).
-- [ ] **Contract tests** (`tests/bot/test_handlers.py`): фасад `from remindme.bot import PrivateOnly, ensure_user, cmd_start, cmd_help, handle_unknown_command, handle_text, handle_group`; сигнатуры; `ensure_user(session, telegram_user_id, timezone, now) -> User`.
-- [ ] **Code**: `PrivateOnly(BaseFilter).__call__` (chat.type=="private"→True); `ensure_user` (найти `User`→нет→создать с `created/updated=now_iso`, `IntegrityError`→rollback+повторный SELECT; есть→`updated=now_iso`; commit); `cmd_start`/`cmd_help`/`handle_text` (сессия→`now`→`get_settings().DEFAULT_TIMEZONE`→`ensure_user`→ответ); `handle_unknown_command` (→/help, без БД); `handle_group` (фиксированный ответ, без БД).
-- [ ] **Code**: добавить имена в фасад.
-- [ ] **Interface verification**: `pytest tests/bot/test_handlers.py -v -k "start or help or text or group or unknown or ensure_user or private"`.
-- [ ] **Logic tests**: `test_private_only_private_true_group_false`; `test_settings_idempotent_start` (дважды `ensure_user(..., now)` → одна запись `User`, `updated_at_utc` обновлён, `created_at_utc` неизменен — перенос из дизайна); `test_ensure_user_concurrent_integrity_error_recovery` (mock `IntegrityError`→повторный SELECT); `test_cmd_start_answers_greeting`; `test_handle_group_answers_unsupported`.
-- [ ] **Debugging**: `pytest tests/bot/test_handlers.py -x -k "start or help or text or group or unknown or ensure_user or private"`.
-- [ ] **Contract re-verification**: идемпотентность, `now` прокинут, группы не пишут в БД.
-- [ ] **Lint**: `ruff check src/remindme/bot/`.
+- [x] **Task declaration**: Task 18 (`bot` — handlers core+phase1).
+- [x] **Contract tests** (`tests/bot/test_handlers.py`): фасад `from remindme.bot import PrivateOnly, ensure_user, cmd_start, cmd_help, handle_unknown_command, handle_text, handle_group`; сигнатуры; `ensure_user(session, telegram_user_id, timezone, now) -> User`.
+- [x] **Code**: `PrivateOnly(BaseFilter).__call__` (chat.type=="private"→True); `ensure_user` (найти `User`→нет→создать с `created/updated=now_iso`, `IntegrityError`→rollback+повторный SELECT; есть→`updated=now_iso`; commit); `cmd_start`/`cmd_help`/`handle_text` (сессия→`now`→`get_settings().DEFAULT_TIMEZONE`→`ensure_user`→ответ); `handle_unknown_command` (→/help, без БД); `handle_group` (фиксированный ответ, без БД).
+- [x] **Code**: добавить имена в фасад.
+- [x] **Interface verification**: `pytest tests/bot/test_handlers.py -v -k "start or help or text or group or unknown or ensure_user or private"`.
+- [x] **Logic tests**: `test_private_only_private_true_group_false`; `test_settings_idempotent_start` (дважды `ensure_user(..., now)` → одна запись `User`, `updated_at_utc` обновлён, `created_at_utc` неизменен — перенос из дизайна); `test_ensure_user_concurrent_integrity_error_recovery` (mock `IntegrityError`→повторный SELECT); `test_cmd_start_answers_greeting`; `test_handle_group_answers_unsupported`.
+- [x] **Debugging**: `pytest tests/bot/test_handlers.py -x -k "start or help or text or group or unknown or ensure_user or private"`.
+- [x] **Contract re-verification**: идемпотентность, `now` прокинут, группы не пишут в БД.
+- [x] **Lint**: `ruff check src/remindme/bot/`.
 
 ---
 
