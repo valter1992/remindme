@@ -891,15 +891,15 @@ DTO `ParsedReminder`/`ParseError` — pydantic `kw_only`. `now` — параме
 
 **CRITICAL: `CODEMANIFEST` files — read-only.**
 
-- [ ] Создать `Dockerfile`: базовый образ `python:3.12-slim`; установка зависимостей из `pyproject.toml` в venv (`pip install .`);
+- [x] Создать `Dockerfile`: базовый образ `python:3.12-slim`; установка зависимостей из `pyproject.toml` в venv (`pip install .`);
   `COPY src/ alembic/ alembic.ini pyproject.toml ./`; рабочая директория — корень проекта; `CMD ["python", "-m", "remindme.main"]`.
   `data/` НЕ создаётся в образе; `.env` НЕ копируется (`COPY .env` запрещён).
-- [ ] Создать `docker-compose.yml`: один сервис бота, `build: .`, `restart: unless-stopped`; том `./data:/app/data`
+- [x] Создать `docker-compose.yml`: один сервис бота, `build: .`, `restart: unless-stopped`; том `./data:/app/data`
   (SQLite + WAL переживают перезапуск контейнера); `TELEGRAM_BOT_TOKEN` и настройки — через `env_file: .env` и/или `environment:`;
   портов наружу не выставлять (long polling; исходящие соединения к Telegram API).
-- [ ] Создать `.dockerignore` (и дополнить корневой `.gitignore`): `.env`, `data/`, `.venv/`, `__pycache__/`, `tests/`, `.goga/`, `docs/`
+- [x] Создать `.dockerignore` (и дополнить корневой `.gitignore`): `.env`, `data/`, `.venv/`, `__pycache__/`, `tests/`, `.goga/`, `docs/`
   — секреты и данные не попадают в образ и репозиторий.
-- [ ] Verify: `docker compose config` (конфиг валиден); при наличии Docker — `docker compose build` собирается без ошибок.
+- [x] Verify: `docker compose config` (конфиг валиден); при наличии Docker — `docker compose build` собирается без ошибок. (Docker не установлен в окружении — структурная валидация compose выполнена без Docker; `goga lint` → `cells: 6 errors: 0`, `goga schema` → OK, pytest/ruff/format зелёные. `docker compose config`/`build` — skipped - not automatable here.)
 
 ---
 
@@ -918,18 +918,18 @@ DTO `ParsedReminder`/`ParseError` — pydantic `kw_only`. `now` — параме
 
 ## Completion Criteria
 
-- [ ] Every contract entity is implemented in the correct `location` (per `CODEMANIFEST`).
-- [ ] Every contract entity is accessible from its cell facade (`__init__.py` + `__all__`).
-- [ ] Properties and methods match the declared API.
-- [ ] Descriptions (algorithms, constraints, requirements) are reflected in behavior.
-- [ ] Contract dependencies (Imports.Types) are met; cross-cell usages consumed correctly.
-- [ ] No re-export obligations (none declared) — each facade exports only its own entities.
-- [ ] Every coding task followed the TDD workflow (contract tests → code → verification → logic tests → debugging → re-verification → lint).
-- [ ] Contract tests and logic tests cover facade, API, and behavior within each coding task.
+- [x] Every contract entity is implemented in the correct `location` (per `CODEMANIFEST`).
+- [x] Every contract entity is accessible from its cell facade (`__init__.py` + `__all__`).
+- [x] Properties and methods match the declared API.
+- [x] Descriptions (algorithms, constraints, requirements) are reflected in behavior.
+- [x] Contract dependencies (Imports.Types) are met; cross-cell usages consumed correctly.
+- [x] No re-export obligations (none declared) — each facade exports only its own entities.
+- [x] Every coding task followed the TDD workflow (contract tests → code → verification → logic tests → debugging → re-verification → lint).
+- [x] Contract tests and logic tests cover facade, API, and behavior within each coding task.
 - [x] Integration tests exist for cross-cell scenarios (Task 27).
-- [ ] Deployment artifacts (`Dockerfile`, `docker-compose.yml`, `.dockerignore`) created per `deployment` usage — без секретов/данных в образе; миграции in-process (Task 28).
-- [ ] No cell boundary was expanded (no new cells, no new facade-level interfaces).
-- [ ] `CODEMANIFEST` files were not modified (contract is read-only).
-- [ ] All validation commands pass (`pytest tests/ -x`, `ruff check`, `ruff format --check`, facade checks, `goga lint`, `goga schema`).
-- [ ] All 26 explicitly-designed test scenarios are implemented (several parametrized); contract/logic tests cover every entity.
-- [ ] `.usages/` files required no changes (verified current — `todos.md`/`formatter.md` already reflect lenient `parse_todo_input` and absence of `invalid_format`).
+- [x] Deployment artifacts (`Dockerfile`, `docker-compose.yml`, `.dockerignore`) created per `deployment` usage — без секретов/данных в образе; миграции in-process (Task 28).
+- [x] No cell boundary was expanded (no new cells, no new facade-level interfaces).
+- [x] `CODEMANIFEST` files were not modified (contract is read-only).
+- [x] All validation commands pass (`pytest tests/ -x`, `ruff check`, `ruff format --check`, facade checks, `goga lint`, `goga schema`). (Локально выполняемые — зелёные; `docker compose config`/`build` недоступны без установленного Docker — verification-only, пропущены.)
+- [x] All 26 explicitly-designed test scenarios are implemented (several parametrized); contract/logic tests cover every entity.
+- [x] `.usages/` files required no changes (verified current — `todos.md`/`formatter.md` already reflect lenient `parse_todo_input` and absence of `invalid_format`).

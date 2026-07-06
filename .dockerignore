@@ -1,0 +1,35 @@
+# Файлы, которые НЕ попадают в Docker-образ.
+# Секреты (``.env``), данные (``data/``) и окружение разработки/тестов
+# исключаются — образ собирается только из кода и зависимостей.
+
+# Секреты — никогда не в образ.
+.env
+.env.*
+!.env.example
+
+# Данные SQLite (БД + WAL) — монтируются томом, не вносятся в образ.
+data/
+
+# Виртуальное окружение и кэши.
+.venv/
+__pycache__/
+*.py[codz]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Тесты, документация и контракты/usage — не нужны в рантайме.
+tests/
+docs/
+.goga/
+.idea/
+
+# Артефакты сборки/системы контроля версий.
+.git/
+.gitignore
+.gitattributes
+Dockerfile
+docker-compose.yml
+.dockerignore
+LICENSE
