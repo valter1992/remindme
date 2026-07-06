@@ -11,11 +11,10 @@ DATABASE_URL берётся из настроек приложения (:func:`g
 import asyncio
 from logging.config import fileConfig
 
+from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
-
-from alembic import context
 
 from remindme.config import get_settings
 from remindme.db import Base
@@ -63,7 +62,7 @@ def do_run_migrations(connection: Connection) -> None:
 
 
 async def run_async_migrations() -> None:
-    """Применить миграции в online-режиме через async-движок (sqlalchemy.ext.asyncio)."""
+    """Применить миграции в online-режиме через async-движок."""
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
