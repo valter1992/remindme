@@ -11,6 +11,11 @@
 ``failed`` на 4-й неудаче). Одна итерация = одна сессия; токен и текст записи не
 логируются.
 
+Неожидаемая ошибка БД (``SQLAlchemyError`` из claim/mark_*) обрывает текущий тик:
+сессия остаётся в failed-состоянии, и продолжать тик бессмысленно —
+``run_reminder_worker`` ловит ошибку, логирует её и продолжает цикл на свежей
+сессии следующего тика, так что просроченные записи доставляются без потерь.
+
 Тестируемый шаг одной итерации (:func:`_deliver_due`, :func:`_run_iteration`) и
 startup-recovery (:func:`_run_recovery`) выделены отдельно — детерминированные
 тесты вызывают их напрямую без реального ``asyncio.sleep``. ``datetime.now``
@@ -58,7 +63,10 @@ async def run_reminder_worker(
     При старте один раз восстанавливает зависшие ``sending``-записи (старше
     порога), затем зацикливается: засыпает на ``poll_interval``, фиксирует
     aware-UTC ``now``, открывает одну сессию и доставляет все просроченные
-    напоминания текущего тика. Запускается как asyncio-задача рядом с polling.
+    напоминания текущего тика. Ошибка БД одного тика логируется ERROR (без текста
+    записи и токена) и не убивает цикл: следующий тик открывает свежую сессию и
+    дообрабатывает оставшиеся просроченные записи. Запускается как asyncio-задача
+    рядом с polling.
 
     Args:
         bot: экземпляр aiogram ``Bot`` для отправки уведомлений.
@@ -69,7 +77,12 @@ async def run_reminder_worker(
 
     while True:
         await asyncio.sleep(poll_interval)
-        await _run_iteration(bot, session_factory, datetime.now(UTC))
+        try:
+            await _run_iteration(bot, session_factory, datetime.now(UTC))
+        except SQLAlchemyError:
+            # Сессия тика осталась в failed-состоянии (см. _deliver_due): тик
+            # обрывается, но сам цикл живёт — следующий тик откроет свежую сессию.
+            logger.error("reminder worker tick db error")
 
 
 async def _run_recovery(
@@ -116,9 +129,13 @@ async def _deliver_due(
 ) -> None:
     """Доставка всех просроченных напоминаний в рамках одной открытой сессии.
 
-    Ошибка одной записи не прерывает обработку остальных: Telegram-ошибки
-    фиксируются через ``mark_failed``/``record_send_failure``, неожидаемая ошибка
-    БД логируется ERROR (без текста записи и токена) — и цикл продолжается.
+    Telegram-ошибки одной записи не прерывают обработку остальных:
+    фиксируются через ``mark_failed``/``record_send_failure``. Неожидаемая ошибка
+    БД (``SQLAlchemyError`` из claim/mark_*) НЕ проглатывается: после неё сессия
+    остаётся в failed-состоянии (повторный ``execute`` поднимёт
+    ``PendingRollbackError``), поэтому исключение поднимается наружу и обрывает
+    тик. ``run_reminder_worker`` ловит его, логирует ERROR (без текста записи и
+    токена) и продолжает цикл на свежей сессии следующего тика.
 
     Args:
         bot: экземпляр aiogram ``Bot``.
@@ -142,7 +159,12 @@ async def _deliver_one(
     ``claim_for_sending`` фильтрует ``status='scheduled'``: отменённые и уже
     захваченные записи пропускаются. Порядок обработки ошибок важен:
     :class:`TelegramForbiddenError` (подкласс :class:`TelegramAPIError`) ловится
-    первым и приводит к немедленному ``failed`` без повторов.
+    первым и приводит к немедленному ``failed`` без повторов. ``user_id``
+    фиксируется в локальную переменную заранее: при ошибке БД сессия остаётся в
+    failed-состоянии, ORM-атрибуты записи становятся недоступны, а лог нужен и в
+    этом случае. Ошибка БД (``SQLAlchemyError`` из claim/mark_*) здесь НЕ
+    ловится как мягкий отказ — она логируется и поднимается, обрывая тик
+    (см. :func:`_deliver_due`).
 
     Args:
         bot: экземпляр aiogram ``Bot``.
@@ -150,6 +172,8 @@ async def _deliver_one(
         reminder: просроченное напоминание (status='scheduled').
         now: aware-UTC момент итерации (база отсрочки при неудаче).
     """
+    user_id = reminder.user_id
+
     try:
         if not await claim_for_sending(session, reminder.id, now):
             return
@@ -158,12 +182,12 @@ async def _deliver_one(
 
         started = time.monotonic()
         try:
-            await bot.send_message(chat_id=reminder.user_id, text=text)
+            await bot.send_message(chat_id=user_id, text=text)
         except TelegramForbiddenError:
             await mark_failed(session, reminder.id)
             logger.warning(
                 "reminder delivery blocked by user",
-                extra={"user_id": reminder.user_id},
+                extra={"user_id": user_id},
             )
             return
         except TelegramAPIError as error:
@@ -171,7 +195,7 @@ async def _deliver_one(
             logger.warning(
                 "reminder delivery transient failure",
                 extra={
-                    "user_id": reminder.user_id,
+                    "user_id": user_id,
                     "failed": failed,
                     "duration_s": round(time.monotonic() - started, 3),
                     # ``str(error)`` — сообщение Telegram об ошибке; текст записи и
@@ -183,7 +207,10 @@ async def _deliver_one(
 
         await mark_sent(session, reminder.id, now)
     except SQLAlchemyError:
-        logger.error(
-            "reminder delivery db error",
-            extra={"user_id": reminder.user_id},
-        )
+        # Ошибка БД (claim/mark_*) не маскируется под мягкий отказ: после неё
+        # сессия остаётся в failed-состоянии, и тихий возврат привёл бы к
+        # обрыву доставки остальных записей тика (PendingRollbackError). Логируем
+        # контекст (``user_id`` зафиксирован заранее) и поднимаем исключение —
+        # ``run_reminder_worker`` обрывает тик и продолжит цикл на свежей сессии.
+        logger.error("reminder delivery db error", extra={"user_id": user_id})
+        raise

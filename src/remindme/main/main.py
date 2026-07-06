@@ -117,6 +117,14 @@ async def main() -> None:
     await asyncio.to_thread(apply_migrations)
 
     settings = get_settings()
+    # Применяем настроенный уровень логирования (``LOG_LEVEL``) к root-логгеру,
+    # иначе ``logger.info``-сообщения клеток (отказы валидации и т.п.) молча
+    # теряются при дефолтном уровне WARNING. ``basicConfig`` — no-op, если у
+    # root-логгера уже есть обработчики (например, при запуске под pytest).
+    logging.basicConfig(
+        level=settings.LOG_LEVEL.upper(),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
     engine = create_engine(settings)
     session_factory = create_session_factory(engine)
 

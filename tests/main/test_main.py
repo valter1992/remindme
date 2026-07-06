@@ -162,6 +162,7 @@ async def test_main_assembles_and_starts_polling(monkeypatch) -> None:  # noqa: 
     settings_mock.TELEGRAM_BOT_TOKEN.get_secret_value.return_value = "test-token"
     settings_mock.REMINDER_POLL_INTERVAL_SECONDS = 5
     settings_mock.DATABASE_URL = "sqlite+aiosqlite:///ignored.db"
+    settings_mock.LOG_LEVEL = "INFO"
     get_settings_mock = MagicMock(return_value=settings_mock)
     monkeypatch.setattr(main_module, "get_settings", get_settings_mock)
 

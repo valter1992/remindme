@@ -10,13 +10,16 @@ poll_interval)``. Logic-тесты вызывают выделенные вну�
 recovery перед циклом, ровно одна сессия на итерацию и пропуск отменённых.
 """
 
+import asyncio
 from datetime import timedelta
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from aiogram.exceptions import TelegramAPIError, TelegramForbiddenError
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import remindme.worker.notifications as notifications_module
 from remindme import worker as worker_facade
 from remindme.db import Reminder, User, create_reminder
 from remindme.worker import run_reminder_worker
@@ -280,6 +283,97 @@ async def test_worker_delivery_outcomes_parametrized(
 
     refreshed = await _refresh_status(session, reminder.id)
     assert refreshed.status == expected_status
+
+
+async def test_worker_db_error_aborts_tick(
+    bot: AsyncMock,
+    session: AsyncSession,
+    fixed_now,
+    monkeypatch,
+) -> None:
+    """Ошибка БД обрывает тик (поднимается), а не проглатывается молча.
+
+    ``mark_sent`` первой записи падает на ``commit`` (``IntegrityError`` от
+    повторной вставки пользователя) — сессия переходит в failed-состояние. До
+    фикса широкий ``except`` проглатывал ошибку и тихо ронял остальные записи
+    тика на ``PendingRollbackError``. После фикса ошибка поднимается, тик
+    обрывается (вторая запись не доходит до отправки в этом тике), а цикл
+    ``run_reminder_worker`` продолжится на свежей сессии следующего тика.
+    """
+    await _make_user(session)
+
+    remind_at = fixed_now - timedelta(minutes=1)
+    await create_reminder(
+        session=session,
+        telegram_user_id=_USER_ID,
+        text="Первое",
+        remind_at_utc=remind_at,
+        now=fixed_now,
+    )
+    await create_reminder(
+        session=session,
+        telegram_user_id=_USER_ID,
+        text="Второе",
+        remind_at_utc=remind_at,
+        now=fixed_now,
+    )
+
+    async def _failing_mark_sent(session_, reminder_id, now_):  # noqa: ANN001
+        # Реальный сбой на commit: повторный INSERT существующего PK →
+        # IntegrityError → failed-состояние сессии.
+        session_.add(
+            User(
+                telegram_user_id=_USER_ID,
+                timezone="UTC",
+                created_at_utc=now_.isoformat(),
+                updated_at_utc=now_.isoformat(),
+            )
+        )
+        await session_.commit()
+
+    monkeypatch.setattr(notifications_module, "mark_sent", _failing_mark_sent)
+
+    with pytest.raises(SQLAlchemyError):
+        await _deliver_due(bot, session, fixed_now)
+
+    # До ошибки дошла только первая запись; вторая не обрабатывалась в этом тике.
+    assert bot.send_message.await_count == 1
+
+
+async def test_worker_loop_survives_tick_db_error(monkeypatch) -> None:
+    """``run_reminder_worker`` ловит ошибку БД тика и продолжает цикл.
+
+    Первый тик поднимает ``SQLAlchemyError`` — без per-tick обработки цикл
+    упал бы. Второй тик доходит до выполнения (и обрывает цикл
+    ``CancelledError``), доказывая, что worker не умер на ошибке БД.
+    """
+    state = {"ticks": 0}
+
+    async def _fake_recovery(session_factory, now):  # noqa: ANN001
+        return 0
+
+    async def _fake_iteration(bot, session_factory, now):  # noqa: ANN001
+        state["ticks"] += 1
+        if state["ticks"] == 1:
+            raise SQLAlchemyError("db down")
+        raise asyncio.CancelledError()
+
+    async def _no_sleep(*args, **kwargs):  # noqa: ANN002, ANN003
+        return None
+
+    monkeypatch.setattr(notifications_module, "_run_recovery", _fake_recovery)
+    monkeypatch.setattr(notifications_module, "_run_iteration", _fake_iteration)
+    monkeypatch.setattr(notifications_module.asyncio, "sleep", _no_sleep)
+
+    with pytest.raises(asyncio.CancelledError):
+        await run_reminder_worker(
+            bot=AsyncMock(),
+            session_factory=MagicMock(),
+            poll_interval=1,
+        )
+
+    # Тик 1 (ошибка БД, поймана) + тик 2 (обрыв цикла) — цикл не умер на тике 1.
+    assert state["ticks"] == 2
 
 
 # --- fixture helpers ---
