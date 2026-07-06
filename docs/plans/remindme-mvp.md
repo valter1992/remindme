@@ -281,13 +281,13 @@ line-length по ruff-умолчанию, `[project.optional-dependencies].test`
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them.**
 
-- [ ] Создать `pyproject.toml`: `[build-system]`, `[project]` (name=`remindme`, requires-python=`>=3.12`), `dependencies` (`pydantic`, `pydantic-settings`, `sqlalchemy[asyncio]>=2`, `aiosqlite`, `aiogram>=3`, `alembic`), `[project.optional-dependencies].test` (`pytest`, `pytest-asyncio`, `pytest-cov`, `ruff`), `[tool.setuptools.packages.find] where=["src"]`, `[tool.pytest.ini_options] asyncio_mode="auto"`, `[tool.ruff]` (lint + format).
-- [ ] Создать `.env.example` с переменными `TELEGRAM_BOT_TOKEN`, `DATABASE_URL`, `DEFAULT_TIMEZONE`, `DEFAULT_REMINDER_TIME`, `REMINDER_POLL_INTERVAL_SECONDS`, `LOG_LEVEL` и комментариями-дефолтами (без реального токена).
-- [ ] Создать корневой пакет `src/remindme/__init__.py` (минимальный docstring, `__all__: list[str] = []`).
-- [ ] Создать тестовый корень: `tests/__init__.py` и `tests/conftest.py` с фикстурой `fixed_now` (явный aware UTC, напр. `datetime(2026,6,24,12,0,0,tzinfo=timezone.utc)`) и `bot` (`AsyncMock` aiogram `Bot`).
-- [ ] Создать/активировать venv и установить пакет с test-extras: `python -m venv .venv && . .venv/bin/activate && pip install -e ".[test]"`.
-- [ ] Verify: `pytest tests/ -x` (пусто/0 тестов — без ошибок сбора) и `ruff check src/` (без ошибок).
-- [ ] Lint: `ruff format --check src/ tests/`.
+- [x] Создать `pyproject.toml`: `[build-system]`, `[project]` (name=`remindme`, requires-python=`>=3.12`), `dependencies` (`pydantic`, `pydantic-settings`, `sqlalchemy[asyncio]>=2`, `aiosqlite`, `aiogram>=3`, `alembic`), `[project.optional-dependencies].test` (`pytest`, `pytest-asyncio`, `pytest-cov`, `ruff`), `[tool.setuptools.packages.find] where=["src"]`, `[tool.pytest.ini_options] asyncio_mode="auto"`, `[tool.ruff]` (lint + format).
+- [x] Создать `.env.example` с переменными `TELEGRAM_BOT_TOKEN`, `DATABASE_URL`, `DEFAULT_TIMEZONE`, `DEFAULT_REMINDER_TIME`, `REMINDER_POLL_INTERVAL_SECONDS`, `LOG_LEVEL` и комментариями-дефолтами (без реального токена).
+- [x] Создать корневой пакет `src/remindme/__init__.py` (минимальный docstring, `__all__: list[str] = []`).
+- [x] Создать тестовый корень: `tests/__init__.py` и `tests/conftest.py` с фикстурой `fixed_now` (явный aware UTC, напр. `datetime(2026,6,24,12,0,0,tzinfo=timezone.utc)`) и `bot` (`AsyncMock` aiogram `Bot`).
+- [x] Создать/активировать venv и установить пакет с test-extras: `python -m venv .venv && . .venv/bin/activate && pip install -e ".[test]"`.
+- [x] Verify: `pytest tests/ -x` (пусто/0 тестов — без ошибок сбора) и `ruff check src/` (без ошибок).
+- [x] Lint: `ruff format --check src/ tests/`.
 
 ---
 
