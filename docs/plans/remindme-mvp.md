@@ -391,15 +391,15 @@ async-фикстуру `session` (она используется logic-тест
 
 **CRITICAL: `CODEMANIFEST` files — read-only. Контракт: session.py.**
 
-- [ ] **Task declaration**: Task 6 (`db` — session).
-- [ ] **Contract tests** (`tests/db/test_session.py`): фасад `from remindme.db import create_engine, create_session_factory`; сигнатуры; `create_engine(settings: Settings) -> AsyncEngine`; `create_session_factory(engine) -> factory`.
-- [ ] **Code**: `create_engine` — взять `DATABASE_URL`, создать родительскую директорию файла БД (`data/` или `tmp_path`), `create_async_engine`, listener PRAGMA; `create_session_factory` — `async_sessionmaker(expire_on_commit=False)`.
-- [ ] **Code**: добавить `create_engine, create_session_factory` в фасад `__init__.py`.
-- [ ] **Interface verification**: `pytest tests/db/test_session.py -v`.
-- [ ] **Logic tests**: `test_create_engine_creates_data_dir` (`tmp_path`/`data/`, `Path.exists()`); `test_pragma_foreign_keys_on` (через соединение `PRAGMA foreign_keys` → 1); `test_pragma_wal_mode`; `test_factory_expire_on_commit_false` (сессия после commit сохраняет доступ к объектам).
-- [ ] **Debugging**: `pytest tests/db/test_session.py -x`.
-- [ ] **Contract re-verification**: PRAGMA и `expire_on_commit=False` по контракту; фасад importable.
-- [ ] **Lint**: `ruff check src/remindme/db/`.
+- [x] **Task declaration**: Task 6 (`db` — session).
+- [x] **Contract tests** (`tests/db/test_session.py`): фасад `from remindme.db import create_engine, create_session_factory`; сигнатуры; `create_engine(settings: Settings) -> AsyncEngine`; `create_session_factory(engine) -> factory`.
+- [x] **Code**: `create_engine` — взять `DATABASE_URL`, создать родительскую директорию файла БД (`data/` или `tmp_path`), `create_async_engine`, listener PRAGMA; `create_session_factory` — `async_sessionmaker(expire_on_commit=False)`.
+- [x] **Code**: добавить `create_engine, create_session_factory` в фасад `__init__.py`.
+- [x] **Interface verification**: `pytest tests/db/test_session.py -v`.
+- [x] **Logic tests**: `test_create_engine_creates_data_dir` (`tmp_path`/`data/`, `Path.exists()`); `test_pragma_foreign_keys_on` (через соединение `PRAGMA foreign_keys` → 1); `test_pragma_wal_mode`; `test_factory_expire_on_commit_false` (сессия после commit сохраняет доступ к объектам).
+- [x] **Debugging**: `pytest tests/db/test_session.py -x`.
+- [x] **Contract re-verification**: PRAGMA и `expire_on_commit=False` по контракту; фасад importable.
+- [x] **Lint**: `ruff check src/remindme/db/`.
 
 ---
 
