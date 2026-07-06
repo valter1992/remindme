@@ -320,16 +320,16 @@ line-length по ruff-умолчанию, `[project.optional-dependencies].test`
 
 **CRITICAL: `CODEMANIFEST` files — read-only. Контракт: `Settings`/`get_settings` в `config.py`.**
 
-- [ ] **Task declaration**: работаем над Task 3 (`config` — Settings/get_settings).
-- [ ] **Contract tests** (`tests/config/test_config.py`): фасад `from remindme.config import Settings, get_settings`; форма API — `Settings(...)` принимает поля как kwargs; свойства `TELEGRAM_BOT_TOKEN: SecretStr`, `DATABASE_URL`, `DEFAULT_TIMEZONE`, `DEFAULT_REMINDER_TIME`, `REMINDER_POLL_INTERVAL_SECONDS: int`, `LOG_LEVEL`; сигнатуры трёх валидаторов; `get_settings() -> Settings`. (Ожидаемо падают — кода нет.)
-- [ ] **Code**: реализовать `Settings(BaseSettings)` с `model_config = SettingsConfigDict(env_file=".env", ...)`, полями с дефолтами и `@field_validator` на `DEFAULT_TIMEZONE` (`available_timezones()` + `ZoneInfo`, иначе `ValueError("unknown IANA timezone")`), `DEFAULT_REMINDER_TIME` (`ЧЧ:ММ`, 0..23/0..59, иначе `ValueError`), `REMINDER_POLL_INTERVAL_SECONDS` (`> 0`, иначе `ValueError`). Google-docstrings, `kw_only=True`.
-- [ ] **Code**: реализовать `get_settings()` — ленивый синглтон (модульная переменная/`functools.cache`); первый вызов создаёт и валидирует `Settings`.
-- [ ] **Code**: добавить `Settings`, `get_settings` в `src/remindme/config/__init__.py` (`__all__`).
-- [ ] **Interface verification**: `pytest tests/config/test_config.py -v` — контракт-тесты зелёные.
-- [ ] **Logic tests**: `test_settings_poll_interval_validation` (parametrize N ∈ {0, -1, -5} → `pytest.raises(ValidationError)`, текст без токена); `test_settings_unknown_timezone_rejected`; `test_settings_bad_reminder_time_rejected`; `test_settings_token_is_secretstr_and_absent_from_error` (при `ValidationError` без токена токен не в `str(exc)`); `test_settings_env_overrides_dotenv` (monkeypatch env); `test_get_settings_singleton` (повторный вызов — тот же объект).
-- [ ] **Debugging**: `pytest tests/config/test_config.py -x` — фиксить реализацию, пока все тесты не пройдут (тесты не править).
-- [ ] **Contract re-verification**: фасад `from remindme.config import Settings, get_settings`; форма API и поведения соответствуют `config/CODEMANIFEST`.
-- [ ] **Lint**: `ruff check src/remindme/config/` + `ruff format --check src/remindme/config/`.
+- [x] **Task declaration**: работаем над Task 3 (`config` — Settings/get_settings).
+- [x] **Contract tests** (`tests/config/test_config.py`): фасад `from remindme.config import Settings, get_settings`; форма API — `Settings(...)` принимает поля как kwargs; свойства `TELEGRAM_BOT_TOKEN: SecretStr`, `DATABASE_URL`, `DEFAULT_TIMEZONE`, `DEFAULT_REMINDER_TIME`, `REMINDER_POLL_INTERVAL_SECONDS: int`, `LOG_LEVEL`; сигнатуры трёх валидаторов; `get_settings() -> Settings`. (Ожидаемо падают — кода нет.)
+- [x] **Code**: реализовать `Settings(BaseSettings)` с `model_config = SettingsConfigDict(env_file=".env", ...)`, полями с дефолтами и `@field_validator` на `DEFAULT_TIMEZONE` (`available_timezones()` + `ZoneInfo`, иначе `ValueError("unknown IANA timezone")`), `DEFAULT_REMINDER_TIME` (`ЧЧ:ММ`, 0..23/0..59, иначе `ValueError`), `REMINDER_POLL_INTERVAL_SECONDS` (`> 0`, иначе `ValueError`). Google-docstrings, `kw_only=True`.
+- [x] **Code**: реализовать `get_settings()` — ленивый синглтон (модульная переменная/`functools.cache`); первый вызов создаёт и валидирует `Settings`.
+- [x] **Code**: добавить `Settings`, `get_settings` в `src/remindme/config/__init__.py` (`__all__`).
+- [x] **Interface verification**: `pytest tests/config/test_config.py -v` — контракт-тесты зелёные.
+- [x] **Logic tests**: `test_settings_poll_interval_validation` (parametrize N ∈ {0, -1, -5} → `pytest.raises(ValidationError)`, текст без токена); `test_settings_unknown_timezone_rejected`; `test_settings_bad_reminder_time_rejected`; `test_settings_token_is_secretstr_and_absent_from_error` (при `ValidationError` без токена токен не в `str(exc)`); `test_settings_env_overrides_dotenv` (monkeypatch env); `test_get_settings_singleton` (повторный вызов — тот же объект).
+- [x] **Debugging**: `pytest tests/config/test_config.py -x` — фиксить реализацию, пока все тесты не пройдут (тесты не править).
+- [x] **Contract re-verification**: фасад `from remindme.config import Settings, get_settings`; форма API и поведения соответствуют `config/CODEMANIFEST`.
+- [x] **Lint**: `ruff check src/remindme/config/` + `ruff format --check src/remindme/config/`.
 
 ---
 

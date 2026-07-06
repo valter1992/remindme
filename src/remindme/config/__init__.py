@@ -1,8 +1,9 @@
 """Клетка config — настройки приложения RemindMe.
 
-Фасадный модуль клетки. Здесь реализуются и экспонируются ``Settings``
+Фасадный модуль клетки экспонирует собственные сущности: ``Settings``
 (pydantic-settings, валидаторы) и ``get_settings`` (ленивый синглтон).
-Сущности добавляются в ``__all__`` в Task 3.
 """
 
-__all__: list[str] = []
+from .config import Settings, get_settings
+
+__all__ = ["Settings", "get_settings"]
