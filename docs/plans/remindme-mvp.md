@@ -684,15 +684,15 @@ DTO `ParsedReminder`/`ParseError` — pydantic `kw_only`. `now` — параме
 
 **CRITICAL: `CODEMANIFEST` files — read-only. Контракт: handlers.py (remind flow); `now` до `ensure_user`; лимит сообщения 1000.**
 
-- [ ] **Task declaration**: Task 19 (`bot` — remind flow).
-- [ ] **Contract tests** (`tests/bot/test_handlers.py`): фасад `from remindme.bot import cmd_remind, cmd_reminders, handle_remind_phrase`; сигнатуры.
-- [ ] **Code**: `cmd_remind` (сессия→`now`→`ensure_user`→`len(message.text)>1000`→ответ об ограничении→`create_reminder_scenario`→ParseError→`format_parse_error`/иначе `format_reminder_confirmation`); `cmd_reminders` (`list_reminders`+`reminders_keyboard`+`format_reminder_list`); `handle_remind_phrase` (та же логика, проверка начала «напомни» `re.IGNORECASE`).
-- [ ] **Code**: добавить имена в фасад.
-- [ ] **Interface verification**: `pytest tests/bot/test_handlers.py -v -k "remind or reminders or phrase"`.
-- [ ] **Logic tests**: `test_cmd_remind_creates_reminder_and_confirms`; `test_cmd_remind_parse_error_path`; `test_handle_remind_phrase_creates_reminder`; `test_message_length_boundary` (param 1000/1001: 1000→доходит до сценария; 1001→ответ об ограничении, БД пуста — перенос из дизайна).
-- [ ] **Debugging**: `pytest tests/bot/test_handlers.py -x -k "remind or reminders or phrase"`.
-- [ ] **Contract re-verification**: `now` до `ensure_user`, лимит 1000, ParseError без сохранения.
-- [ ] **Lint**: `ruff check src/remindme/bot/`.
+- [x] **Task declaration**: Task 19 (`bot` — remind flow).
+- [x] **Contract tests** (`tests/bot/test_handlers.py`): фасад `from remindme.bot import cmd_remind, cmd_reminders, handle_remind_phrase`; сигнатуры.
+- [x] **Code**: `cmd_remind` (сессия→`now`→`ensure_user`→`len(message.text)>1000`→ответ об ограничении→`create_reminder_scenario`→ParseError→`format_parse_error`/иначе `format_reminder_confirmation`); `cmd_reminders` (`list_reminders`+`reminders_keyboard`+`format_reminder_list`); `handle_remind_phrase` (та же логика, проверка начала «напомни» `re.IGNORECASE`).
+- [x] **Code**: добавить имена в фасад.
+- [x] **Interface verification**: `pytest tests/bot/test_handlers.py -v -k "remind or reminders or phrase"`.
+- [x] **Logic tests**: `test_cmd_remind_creates_reminder_and_confirms`; `test_cmd_remind_parse_error_path`; `test_handle_remind_phrase_creates_reminder`; `test_message_length_boundary` (param 1000/1001: 1000→доходит до сценария; 1001→ответ об ограничении, БД пуста — перенос из дизайна).
+- [x] **Debugging**: `pytest tests/bot/test_handlers.py -x -k "remind or reminders or phrase"`.
+- [x] **Contract re-verification**: `now` до `ensure_user`, лимит 1000, ParseError без сохранения.
+- [x] **Lint**: `ruff check src/remindme/bot/`.
 
 ---
 

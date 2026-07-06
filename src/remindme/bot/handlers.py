@@ -22,14 +22,24 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..config import get_settings
-from ..db import User
+from ..db import User, list_reminders
+from ..services import ParseError, create_reminder_scenario
+from .formatter import (
+    format_parse_error,
+    format_reminder_confirmation,
+    format_reminder_list,
+)
+from .keyboards import reminders_keyboard
 
 __all__ = [
     "PrivateOnly",
     "cmd_help",
+    "cmd_remind",
+    "cmd_reminders",
     "cmd_start",
     "ensure_user",
     "handle_group",
+    "handle_remind_phrase",
     "handle_text",
     "handle_unknown_command",
 ]
@@ -62,6 +72,10 @@ _HELP = (
 _UNKNOWN_COMMAND = "Неизвестная команда. Введите /help для списка команд."
 _TEXT_HINT = "Я не понял сообщение. Введите /help для списка команд."
 _GROUP_UNSUPPORTED = "Я работаю только в личных сообщениях. Напишите мне в личку."
+
+# Гард длины сообщения до разбора (текст ограничен парсером отдельно).
+_MAX_MESSAGE_LEN = 1000
+_MESSAGE_TOO_LONG = "Сообщение слишком длинное (максимум 1000 символов)."
 
 
 class PrivateOnly(BaseFilter):
@@ -178,3 +192,84 @@ async def handle_text(message: Message) -> None:
 async def handle_group(message: Message) -> None:
     """Сообщения из групп: отказ (без БД); регистрируется последним без фильтра."""
     await message.answer(_GROUP_UNSUPPORTED)
+
+
+# --- Remind flow (Task 19): /remind, /reminders, «напомни ...» ---
+
+
+async def _answer_reminder(message: Message) -> None:
+    """Общая логика создания напоминания для команды и фразы.
+
+    Шаги: открыть сессию → зафиксировать ``now`` → идемпотентно
+    зарегистрировать пользователя → проверить длину сообщения (``>1000`` —
+    отказ до разбора) → :func:`create_reminder_scenario` (текст команды/фразы
+    передаётся как ``raw`` целиком, разделитель ``|`` разбирает парсер) → при
+    :class:`ParseError` ответить текстом ошибки без сохранения, иначе —
+    подтверждением с локальным временем и поясом.
+
+    Args:
+        message: приватное сообщение; ``message.text`` — команда ``/remind …``
+            или фраза «напомни …».
+    """
+    async with _session_factory() as session:  # type: ignore[misc]
+        now = datetime.now(UTC)
+        timezone = get_settings().DEFAULT_TIMEZONE
+        user = await ensure_user(
+            session=session,
+            telegram_user_id=message.from_user.id,
+            timezone=timezone,
+            now=now,
+        )
+
+        if len(message.text) > _MAX_MESSAGE_LEN:
+            await message.answer(_MESSAGE_TOO_LONG)
+            return
+
+        result = await create_reminder_scenario(
+            session=session,
+            telegram_user_id=user.telegram_user_id,
+            raw=message.text,
+            now=now,
+            timezone=user.timezone,
+            default_time=get_settings().DEFAULT_REMINDER_TIME,
+        )
+        if isinstance(result, ParseError):
+            await message.answer(format_parse_error(result))
+            return
+        await message.answer(format_reminder_confirmation(result, user.timezone))
+
+
+async def cmd_remind(message: Message) -> None:
+    """Команда ``/remind <время> | <текст>``: создаёт напоминание."""
+    await _answer_reminder(message)
+
+
+async def cmd_reminders(message: Message) -> None:
+    """Команда ``/reminders``: список активных напоминаний с inline-клавиатурой."""
+    async with _session_factory() as session:  # type: ignore[misc]
+        now = datetime.now(UTC)
+        user = await ensure_user(
+            session=session,
+            telegram_user_id=message.from_user.id,
+            timezone=get_settings().DEFAULT_TIMEZONE,
+            now=now,
+        )
+        reminders = await list_reminders(
+            session=session,
+            user_id=user.telegram_user_id,
+        )
+        keyboard = reminders_keyboard([r.id for r in reminders])
+        await message.answer(
+            format_reminder_list(reminders, user.timezone),
+            reply_markup=keyboard,
+        )
+
+
+async def handle_remind_phrase(message: Message) -> None:
+    """Фраза «напомни [мне] …» в личке: создаёт напоминание.
+
+    Регистрируется перед ``handle_text`` с фильтром начала «напомни»
+    (``re.IGNORECASE``); здесь применяется та же логика создания, что и в
+    :func:`cmd_remind` — разделитель ``|`` и префикс разбирает парсер.
+    """
+    await _answer_reminder(message)

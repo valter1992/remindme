@@ -25,13 +25,16 @@ from remindme import bot as bot_facade
 from remindme.bot import (
     PrivateOnly,
     cmd_help,
+    cmd_remind,
+    cmd_reminders,
     cmd_start,
     ensure_user,
     handle_group,
+    handle_remind_phrase,
     handle_text,
     handle_unknown_command,
 )
-from remindme.db import User
+from remindme.db import Reminder, User
 
 _MOSCOW = "Europe/Moscow"
 
@@ -44,6 +47,8 @@ _EXPECTED = {
     "handle_text",
     "handle_group",
 }
+
+_REMIND_EXPECTED = {"cmd_remind", "cmd_reminders", "handle_remind_phrase"}
 
 
 # --- Контракт-тесты: форма фасада и API ---
@@ -243,3 +248,159 @@ async def test_handle_group_answers_unsupported() -> None:
     assert message.answer.await_count == 1
     answered = message.answer.await_args.args[0]
     assert "личных сообщениях" in answered
+
+
+# ===========================================================================
+# Task 19: remind flow — cmd_remind, cmd_reminders, handle_remind_phrase
+# ===========================================================================
+
+
+# --- Контракт-тесты: форма фасада и API remind-потока ---
+
+
+def test_facade_exports_remind_handlers() -> None:
+    """Фасад экспортирует 3 обработчика remind-потока через ``__all__``."""
+    assert _REMIND_EXPECTED.issubset(set(bot_facade.__all__))
+    for name in _REMIND_EXPECTED:
+        assert getattr(bot_facade, name) is not None
+
+
+@pytest.mark.parametrize("fn", [cmd_remind, cmd_reminders, handle_remind_phrase])
+def test_remind_handler_is_coroutine_taking_message(fn) -> None:
+    """Обработчики remind-потока — async-функции, принимающие ``message``."""
+    assert inspect.iscoroutinefunction(fn)
+    code = fn.__code__
+    assert code.co_varnames[: code.co_argcount] == ("message",)
+
+
+# --- Logic-тесты: создание напоминания ---
+
+
+async def test_cmd_remind_creates_reminder_and_confirms(session, session_factory):  # noqa: ANN001
+    """``/remind`` создаёт напоминание и подтверждает его локальным временем."""
+    message = _private_message("/remind через 10 минут | Купить продукты")
+    await cmd_remind(message)
+
+    assert message.answer.await_count == 1
+    answered = message.answer.await_args.args[0]
+    assert "Напоминание создано" in answered
+    assert "Купить продукты" in answered
+    assert _MOSCOW in answered  # суффикс IANA в подтверждении
+
+    reminders = (
+        (await session.execute(select(Reminder).where(Reminder.user_id == 123)))
+        .scalars()
+        .all()
+    )
+    assert len(reminders) == 1
+    assert reminders[0].status == "scheduled"
+    assert reminders[0].text == "Купить продукты"
+
+
+async def test_cmd_remind_parse_error_path(session, session_factory):  # noqa: ANN001
+    """Нераспознанное ``/remind`` → текст ошибки парсера, запись не создаётся."""
+    message = _private_message("/remind абракадабра | текст")
+    await cmd_remind(message)
+
+    assert message.answer.await_count == 1
+    answered = message.answer.await_args.args[0]
+    assert "Не удалось разобрать время" in answered
+
+    reminders = (
+        (await session.execute(select(Reminder).where(Reminder.user_id == 123)))
+        .scalars()
+        .all()
+    )
+    assert len(reminders) == 0
+
+
+async def test_handle_remind_phrase_creates_reminder(session, session_factory):  # noqa: ANN001
+    """Фраза «напомни ...» создаёт напоминание и подтверждает."""
+    message = _private_message("напомни через 10 минут купить хлеб")
+    await handle_remind_phrase(message)
+
+    assert message.answer.await_count == 1
+    answered = message.answer.await_args.args[0]
+    assert "Напоминание создано" in answered
+    assert "купить хлеб" in answered
+
+    reminders = (
+        (await session.execute(select(Reminder).where(Reminder.user_id == 123)))
+        .scalars()
+        .all()
+    )
+    assert len(reminders) == 1
+    assert reminders[0].text == "купить хлеб"
+    assert reminders[0].status == "scheduled"
+
+
+# --- Logic-тесты: ограничение длины сообщения (1000/1001) ---
+
+
+@pytest.mark.parametrize(("total", "blocked"), [(1000, False), (1001, True)])
+async def test_message_length_boundary(total, blocked, session, session_factory):  # noqa: ANN001
+    """1000 символов доходит до сценария; 1001 — блокируется лимитом сообщения.
+
+    Сообщение ``/remind <время> | <длинный текст>``: при 1000 символах длина
+    проходит гард сообщения, и сценарий разбирает текст (длиннее 500 →
+    ``text_too_long`` парсера); при 1001 — гард сообщения срабатывает раньше
+    сценария. В обоих случаях запись в БД не создаётся.
+    """
+    prefix = "/remind через 10 минут | "
+    padding = "X" * (total - len(prefix))
+    message = _private_message(prefix + padding)
+    assert len(message.text) == total
+
+    await cmd_remind(message)
+
+    assert message.answer.await_count == 1
+    answered = message.answer.await_args.args[0]
+    reminders = (
+        (await session.execute(select(Reminder).where(Reminder.user_id == 123)))
+        .scalars()
+        .all()
+    )
+    assert len(reminders) == 0
+
+    if blocked:
+        # Гард сообщения: ответ о лимите 1000 символов.
+        assert "1000 символов" in answered
+        assert "500 символов" not in answered
+    else:
+        # Сценарий достигнут: парсер ответил своим лимитом 500 символов.
+        assert "500 символов" in answered
+        assert "1000 символов" not in answered
+
+
+# --- Logic-тесты: список напоминаний с клавиатурой ---
+
+
+async def test_cmd_reminders_lists_with_keyboard(session_factory):  # noqa: ANN001
+    """``/reminders`` отвечает списком и прикрепляет inline-клавиатуру."""
+    create = _private_message("/remind через 10 минут | Купить продукты")
+    await cmd_remind(create)
+
+    message = _private_message("/reminders")
+    await cmd_reminders(message)
+
+    assert message.answer.await_count == 1
+    answered = message.answer.await_args.args[0]
+    assert "Купить продукты" in answered
+
+    reply_markup = message.answer.await_args.kwargs.get("reply_markup")
+    assert reply_markup is not None
+    rows = reply_markup.inline_keyboard
+    assert len(rows) == 1
+    callback_data = rows[0][0].callback_data
+    assert callback_data.startswith("delete:reminder:")
+
+
+async def test_cmd_reminders_empty_answers_no_keyboard(session_factory):  # noqa: ANN001
+    """``/reminders`` без напоминаний отвечает текстом без клавиатуры."""
+    message = _private_message("/reminders")
+    await cmd_reminders(message)
+
+    assert message.answer.await_count == 1
+    answered = message.answer.await_args.args[0]
+    assert "Нет напоминаний" in answered
+    assert message.answer.await_args.kwargs.get("reply_markup") is None

@@ -36,15 +36,19 @@ class _SharedSessionCtx:
 
 @pytest.fixture(autouse=True)
 def _stub_settings(monkeypatch) -> None:
-    """Подменяет ``get_settings`` в обработчиках тестовой зоной без токена.
+    """Подменяет ``get_settings`` в обработчиках тестовыми настройками без токена.
 
-    Обработчики этапа 1 читают только ``DEFAULT_TIMEZONE``; реальная валидация
-    настроек (с обязательным токеном) здесь не нужна.
+    Обработчики читают ``DEFAULT_TIMEZONE`` (регистрация пользователя) и
+    ``DEFAULT_REMINDER_TIME`` (разбор «сегодня/завтра» без явного времени);
+    реальная валидация настроек (с обязательным токеном) здесь не нужна.
     """
     monkeypatch.setattr(
         handlers_module,
         "get_settings",
-        lambda: SimpleNamespace(DEFAULT_TIMEZONE="Europe/Moscow"),
+        lambda: SimpleNamespace(
+            DEFAULT_TIMEZONE="Europe/Moscow",
+            DEFAULT_REMINDER_TIME="09:00",
+        ),
     )
 
 
