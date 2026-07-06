@@ -527,15 +527,15 @@ DTO `ParsedReminder`/`ParseError` — pydantic `kw_only`. `now` — параме
 
 **CRITICAL: `CODEMANIFEST` files — read-only. Контракт: reminders.py; при ParseError запись не создаётся.**
 
-- [ ] **Task declaration**: Task 12 (`services` — reminder scenarios).
-- [ ] **Contract tests** (`tests/services/test_reminders.py`): фасад `from remindme.services import create_reminder_scenario, set_timezone_scenario, cancel_reminder_scenario`; сигнатуры; типы возврата `Reminder | ParseError`, `bool`, `CancelOutcome`.
-- [ ] **Code**: `create_reminder_scenario` (`parse_remind_time`→ParseError вернуть без сохранения→`create_reminder`), `set_timezone_scenario` (`ZoneInfo(timezone)`, ошибка→`False` без БД→`set_user_timezone`), `cancel_reminder_scenario` (делегирует `cancel_reminder`→`CancelOutcome`).
-- [ ] **Code**: добавить имена в фасад `__init__.py`.
-- [ ] **Interface verification**: `pytest tests/services/test_reminders.py -v`.
-- [ ] **Logic tests**: `test_create_reminder_scenario_success` (через фикстуру `session`); `test_create_reminder_scenario_parse_error_no_save` (ParseError→БД пуста); `test_set_timezone_scenario_unknown_returns_false` (без БД); `test_set_timezone_scenario_updates`; `test_cancel_reminder_scenario_delegates` (все три `CancelOutcome.kind`).
-- [ ] **Debugging**: `pytest tests/services/test_reminders.py -x`.
-- [ ] **Contract re-verification**: parse→repo-поток, `CancelOutcome`, валидация IANA до БД — по контракту.
-- [ ] **Lint**: `ruff check src/remindme/services/`.
+- [x] **Task declaration**: Task 12 (`services` — reminder scenarios).
+- [x] **Contract tests** (`tests/services/test_reminders.py`): фасад `from remindme.services import create_reminder_scenario, set_timezone_scenario, cancel_reminder_scenario`; сигнатуры; типы возврата `Reminder | ParseError`, `bool`, `CancelOutcome`.
+- [x] **Code**: `create_reminder_scenario` (`parse_remind_time`→ParseError вернуть без сохранения→`create_reminder`), `set_timezone_scenario` (`ZoneInfo(timezone)`, ошибка→`False` без БД→`set_user_timezone`), `cancel_reminder_scenario` (делегирует `cancel_reminder`→`CancelOutcome`).
+- [x] **Code**: добавить имена в фасад `__init__.py`.
+- [x] **Interface verification**: `pytest tests/services/test_reminders.py -v`.
+- [x] **Logic tests**: `test_create_reminder_scenario_success` (через фикстуру `session`); `test_create_reminder_scenario_parse_error_no_save` (ParseError→БД пуста); `test_set_timezone_scenario_unknown_returns_false` (без БД); `test_set_timezone_scenario_updates`; `test_cancel_reminder_scenario_delegates` (все три `CancelOutcome.kind`).
+- [x] **Debugging**: `pytest tests/services/test_reminders.py -x`.
+- [x] **Contract re-verification**: parse→repo-поток, `CancelOutcome`, валидация IANA до БД — по контракту.
+- [x] **Lint**: `ruff check src/remindme/services/`.
 
 ---
 
