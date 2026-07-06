@@ -549,15 +549,15 @@ DTO `ParsedReminder`/`ParseError` — pydantic `kw_only`. `now` — параме
 
 **CRITICAL: `CODEMANIFEST` files — read-only. Контракт: notes.py.**
 
-- [ ] **Task declaration**: Task 13 (`services` — notes scenario).
-- [ ] **Contract tests** (`tests/services/test_notes.py`): фасад `from remindme.services import NoteError, create_note_scenario`; `NoteError.kind` варианты.
-- [ ] **Code**: `NoteError(kind)` (pydantic kw_only), `create_note_scenario` (`text=raw.strip()`; пусто→`empty_text`; `len>500`→`text_too_long`; иначе `create_note`).
-- [ ] **Code**: добавить имена в фасад.
-- [ ] **Interface verification**: `pytest tests/services/test_notes.py -v`.
-- [ ] **Logic tests**: `test_create_note_scenario_success`; `test_create_note_scenario_empty` (`NoteError(empty_text)`); `test_create_note_scenario_too_long` (501 → `text_too_long`); `test_create_note_scenario_strips_whitespace`.
-- [ ] **Debugging**: `pytest tests/services/test_notes.py -x`.
-- [ ] **Contract re-verification**: 1–500, kinds, без сохранения при ошибке.
-- [ ] **Lint**: `ruff check src/remindme/services/`.
+- [x] **Task declaration**: Task 13 (`services` — notes scenario).
+- [x] **Contract tests** (`tests/services/test_notes.py`): фасад `from remindme.services import NoteError, create_note_scenario`; `NoteError.kind` варианты.
+- [x] **Code**: `NoteError(kind)` (pydantic kw_only), `create_note_scenario` (`text=raw.strip()`; пусто→`empty_text`; `len>500`→`text_too_long`; иначе `create_note`).
+- [x] **Code**: добавить имена в фасад.
+- [x] **Interface verification**: `pytest tests/services/test_notes.py -v`.
+- [x] **Logic tests**: `test_create_note_scenario_success`; `test_create_note_scenario_empty` (`NoteError(empty_text)`); `test_create_note_scenario_too_long` (501 → `text_too_long`); `test_create_note_scenario_strips_whitespace`.
+- [x] **Debugging**: `pytest tests/services/test_notes.py -x`.
+- [x] **Contract re-verification**: 1–500, kinds, без сохранения при ошибке.
+- [x] **Lint**: `ruff check src/remindme/services/`.
 
 ---
 
