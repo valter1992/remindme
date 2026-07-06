@@ -867,14 +867,14 @@ DTO `ParsedReminder`/`ParseError` — pydantic `kw_only`. `now` — параме
 
 **CRITICAL: `CODEMANIFEST` files — read-only.**
 
-- [ ] Создать `tests/test_integration.py`.
-- [ ] Test full `/remind` round-trip: `Message` → `cmd_remind` → `create_reminder_scenario` → `create_reminder` → БД (`session`) → `format_reminder_confirmation` → `message.answer` (mock). Assert: запись в БД `status="scheduled"`, локальное время в ответе.
-- [ ] Test callback complete→redraw: `handle_callback("complete:todo:<id>")` → БД `status="completed"` → `edit_text` вызван.
-- [ ] Test worker e2e delivery+escalation: due Reminder → один тик worker (`bot.send_message` mock) → `status="sent"`; при transient error → `status="scheduled"`, `attempt_count` растёт; 4-я неудача → `failed`.
-- [ ] Test worker restart recovery: зависшая `sending` (>60 c) → после `recover_stuck_sending` доставляется в следующем тике.
-- [ ] Test ensure_user concurrent registration: эмуляция `IntegrityError` (или реальная конкурентная вставка того же `telegram_user_id`) → одна запись, идемпотентность.
-- [ ] Run validation: `pytest tests/test_integration.py -v`.
-- [ ] (Опц.) e2e smoke реального Telegram под `pytest.mark.skipif` (токен из окружения) — пропускать по умолчанию.
+- [x] Создать `tests/test_integration.py`.
+- [x] Test full `/remind` round-trip: `Message` → `cmd_remind` → `create_reminder_scenario` → `create_reminder` → БД (`session`) → `format_reminder_confirmation` → `message.answer` (mock). Assert: запись в БД `status="scheduled"`, локальное время в ответе.
+- [x] Test callback complete→redraw: `handle_callback("complete:todo:<id>")` → БД `status="completed"` → `edit_text` вызван.
+- [x] Test worker e2e delivery+escalation: due Reminder → один тик worker (`bot.send_message` mock) → `status="sent"`; при transient error → `status="scheduled"`, `attempt_count` растёт; 4-я неудача → `failed`.
+- [x] Test worker restart recovery: зависшая `sending` (>60 c) → после `recover_stuck_sending` доставляется в следующем тике.
+- [x] Test ensure_user concurrent registration: эмуляция `IntegrityError` (или реальная конкурентная вставка того же `telegram_user_id`) → одна запись, идемпотентность.
+- [x] Run validation: `pytest tests/test_integration.py -v`.
+- [x] (Опц.) e2e smoke реального Telegram под `pytest.mark.skipif` (токен из окружения) — пропускать по умолчанию.
 
 ---
 
@@ -926,7 +926,7 @@ DTO `ParsedReminder`/`ParseError` — pydantic `kw_only`. `now` — параме
 - [ ] No re-export obligations (none declared) — each facade exports only its own entities.
 - [ ] Every coding task followed the TDD workflow (contract tests → code → verification → logic tests → debugging → re-verification → lint).
 - [ ] Contract tests and logic tests cover facade, API, and behavior within each coding task.
-- [ ] Integration tests exist for cross-cell scenarios (Task 27).
+- [x] Integration tests exist for cross-cell scenarios (Task 27).
 - [ ] Deployment artifacts (`Dockerfile`, `docker-compose.yml`, `.dockerignore`) created per `deployment` usage — без секретов/данных в образе; миграции in-process (Task 28).
 - [ ] No cell boundary was expanded (no new cells, no new facade-level interfaces).
 - [ ] `CODEMANIFEST` files were not modified (contract is read-only).
