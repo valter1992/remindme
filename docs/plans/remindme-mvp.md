@@ -366,16 +366,16 @@ async-фикстуру `session` (она используется logic-тест
 
 **CRITICAL: `CODEMANIFEST` files — read-only. Контракт: модели в `models.py`.**
 
-- [ ] **Task declaration**: Task 5 (`db` — models).
-- [ ] **Contract tests** (`tests/db/test_models.py`): фасад `from remindme.db import Base, User, Reminder, Note, Todo`; формы классов; наличие свойств (`telegram_user_id`, `timezone`, `status` и т.д.) как `Mapped`-колонок; `Base.metadata` содержит 4 таблицы (`users`, `reminders`, `notes`, `todos`); FK `reminders.user_id → users.telegram_user_id` (и для notes/todos).
-- [ ] **Code**: реализовать `Base(DeclarativeBase)`, `User`, `Reminder`, `Note`, `Todo` с колонками и типами строго по контракту (`Reminder.status`/`attempt_count`/`next_attempt_at_utc`/`locked_at_utc`/`sent_at_utc`; `Todo.due_at_utc`/`completed_at_utc` nullable; `attempt_count` default 0).
-- [ ] **Code**: добавить `Base, User, Reminder, Note, Todo` в `src/remindme/db/__init__.py` (`__all__`).
-- [ ] **Code**: добавить в `tests/conftest.py` async-фикстуру `session` (теперь `Base` определён): движок `create_async_engine("sqlite+aiosqlite:///"+tmp_path/"test.db")`, listener `connect` → `PRAGMA foreign_keys=ON`; `async_sessionmaker(..., expire_on_commit=False)`; setup `await conn.run_sync(Base.metadata.create_all)`; yield сессии; teardown drop.
-- [ ] **Interface verification**: `pytest tests/db/test_models.py -v`.
-- [ ] **Logic tests** (через фикстуру `session`): `test_user_pk_unique_integrity_error` (дубликат `telegram_user_id` → `IntegrityError`); `test_reminder_fk_missing_user_raises` (FK без `user_id` → `IntegrityError`); `test_reminder_status_scheduled_default` (создание → `status="scheduled"`, `attempt_count=0`); `test_todo_nullable_due_and_completed` (Todo без срока); `test_metadata_has_four_tables` (`len(Base.metadata.tables) == 4`).
-- [ ] **Debugging**: `pytest tests/db/test_models.py -x`.
-- [ ] **Contract re-verification**: свойства/типы колонок соответствуют `db/CODEMANIFEST`; `from remindme.db import Base, User, Reminder, Note, Todo`.
-- [ ] **Lint**: `ruff check src/remindme/db/`.
+- [x] **Task declaration**: Task 5 (`db` — models).
+- [x] **Contract tests** (`tests/db/test_models.py`): фасад `from remindme.db import Base, User, Reminder, Note, Todo`; формы классов; наличие свойств (`telegram_user_id`, `timezone`, `status` и т.д.) как `Mapped`-колонок; `Base.metadata` содержит 4 таблицы (`users`, `reminders`, `notes`, `todos`); FK `reminders.user_id → users.telegram_user_id` (и для notes/todos).
+- [x] **Code**: реализовать `Base(DeclarativeBase)`, `User`, `Reminder`, `Note`, `Todo` с колонками и типами строго по контракту (`Reminder.status`/`attempt_count`/`next_attempt_at_utc`/`locked_at_utc`/`sent_at_utc`; `Todo.due_at_utc`/`completed_at_utc` nullable; `attempt_count` default 0).
+- [x] **Code**: добавить `Base, User, Reminder, Note, Todo` в `src/remindme/db/__init__.py` (`__all__`).
+- [x] **Code**: добавить в `tests/conftest.py` async-фикстуру `session` (теперь `Base` определён): движок `create_async_engine("sqlite+aiosqlite:///"+tmp_path/"test.db")`, listener `connect` → `PRAGMA foreign_keys=ON`; `async_sessionmaker(..., expire_on_commit=False)`; setup `await conn.run_sync(Base.metadata.create_all)`; yield сессии; teardown drop.
+- [x] **Interface verification**: `pytest tests/db/test_models.py -v`.
+- [x] **Logic tests** (через фикстуру `session`): `test_user_pk_unique_integrity_error` (дубликат `telegram_user_id` → `IntegrityError`); `test_reminder_fk_missing_user_raises` (FK без `user_id` → `IntegrityError`); `test_reminder_status_scheduled_default` (создание → `status="scheduled"`, `attempt_count=0`); `test_todo_nullable_due_and_completed` (Todo без срока); `test_metadata_has_four_tables` (`len(Base.metadata.tables) == 4`).
+- [x] **Debugging**: `pytest tests/db/test_models.py -x`.
+- [x] **Contract re-verification**: свойства/типы колонок соответствуют `db/CODEMANIFEST`; `from remindme.db import Base, User, Reminder, Note, Todo`.
+- [x] **Lint**: `ruff check src/remindme/db/`.
 
 ---
 
