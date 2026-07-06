@@ -178,6 +178,27 @@ async def test_callback_malformed_payload_no_db(data, monkeypatch) -> None:  # n
     assert callback.message.edit_text.await_count == 0
 
 
+async def test_callback_unknown_action_returns_stale(  # noqa: ANN001
+    session,
+    fixed_now,
+    session_factory,
+):
+    """Неизвестный action:entity → единый ответ, без перерисовки."""
+    await ensure_user(
+        session=session,
+        telegram_user_id=123,
+        timezone=_MOSCOW,
+        now=fixed_now,
+    )
+
+    callback = _callback("foo:bar:1", user_id=123)
+    await handle_callback(callback)
+
+    assert callback.answer.await_count == 1
+    assert callback.answer.await_args.args[0] == "Запись уже изменена или удалена."
+    assert callback.message.edit_text.await_count == 0
+
+
 # --- Logic-тесты: delete:note ---
 
 

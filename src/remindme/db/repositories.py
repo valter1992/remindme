@@ -496,7 +496,7 @@ async def delete_todo(
     del_stmt = delete(Todo).where(Todo.id == todo_id, Todo.user_id == user_id)
 
     try:
-        await session.execute(del_stmt)
+        del_result = await session.execute(del_stmt)
         await session.commit()
     except SQLAlchemyError:
         await session.rollback()
@@ -505,6 +505,12 @@ async def delete_todo(
             extra={"todo_id": todo_id, "user_id": user_id},
         )
         raise
+
+    # Конкурентное удаление (двойной клик по кнопке): между SELECT и DELETE
+    # запись уже исчезла — rowcount==0, возвращаем «не найдено», не заявляя ложный
+    # статус до удаления.
+    if del_result.rowcount == 0:
+        return None
 
     return status == "completed"
 

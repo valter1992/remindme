@@ -452,6 +452,27 @@ async def test_list_notes_isolates_by_user(session: AsyncSession, fixed_now) -> 
     assert notes[0].text == "42"
 
 
+async def test_list_notes_limit(session: AsyncSession, fixed_now) -> None:
+    """21 заметка → 20, новые сверху (самая старая по created_at отсечена)."""
+    await _make_user(session, telegram_user_id=42)
+
+    created = []
+    for i in range(21):
+        note = await create_note(
+            session=session,
+            telegram_user_id=42,
+            text=f"N{i}",
+            now=fixed_now + timedelta(seconds=i),
+        )
+        created.append(note)
+
+    notes = await list_notes(session=session, user_id=42)
+
+    assert len(notes) == 20
+    assert created[0].id not in {n.id for n in notes}  # самая старая отсечена
+    assert notes[0].id == created[-1].id  # порядок desc — новейшая первой
+
+
 async def test_delete_note_foreign_returns_false(
     session: AsyncSession, fixed_now
 ) -> None:
@@ -551,6 +572,31 @@ async def test_list_todos_nulls_last(session: AsyncSession, fixed_now) -> None:
     assert todos[3].id == no_due_first.id
 
 
+async def test_list_todos_limit(session: AsyncSession, fixed_now) -> None:
+    """21 активная задача со сроком → 20 (дальняя по сроку отсечена)."""
+    await _make_user(session, telegram_user_id=42)
+
+    created = []
+    for hour in range(1, 22):
+        todo = await create_todo(
+            session=session,
+            telegram_user_id=42,
+            text=f"T{hour}",
+            due_at_utc=fixed_now + timedelta(hours=hour),
+            now=fixed_now,
+        )
+        created.append(todo)
+
+    todos = await list_todos(session=session, user_id=42)
+
+    assert len(todos) == 20
+    farthest = max(created, key=lambda t: t.due_at_utc)
+    assert farthest.id not in {t.id for t in todos}
+    # порядок asc по due_at_utc
+    dues = [t.due_at_utc for t in todos]
+    assert dues == sorted(dues)
+
+
 async def test_list_todos_isolates_by_user(session: AsyncSession, fixed_now) -> None:
     """list_todos возвращает только активные задачи текущего пользователя."""
     await _make_user(session, telegram_user_id=42)
@@ -641,6 +687,34 @@ async def test_list_completed_desc(session: AsyncSession, fixed_now) -> None:
     assert [t.id for t in completed] == [t2.id, t1.id]
     assert all(t.status == "completed" for t in completed)
     assert all(t.completed_at_utc is not None for t in completed)
+
+
+async def test_list_completed_limit(session: AsyncSession, fixed_now) -> None:
+    """21 выполненная задача → 20, недавние сверху (самая давняя отсечена)."""
+    await _make_user(session, telegram_user_id=42)
+
+    created = []
+    for i in range(21):
+        todo = await create_todo(
+            session=session,
+            telegram_user_id=42,
+            text=f"C{i}",
+            due_at_utc=None,
+            now=fixed_now,
+        )
+        await complete_todo(
+            session=session,
+            todo_id=todo.id,
+            user_id=42,
+            now=fixed_now + timedelta(seconds=i),
+        )
+        created.append(todo)
+
+    todos = await list_completed(session=session, user_id=42)
+
+    assert len(todos) == 20
+    assert created[0].id not in {t.id for t in todos}  # самая давняя отсечена
+    assert todos[0].id == created[-1].id  # последняя завершённая — первой
 
 
 async def test_complete_todo_active_to_completed_and_repeat_returns_false(
@@ -1018,6 +1092,10 @@ async def test_record_send_failure_schedule(
     await session.refresh(reloaded)
     assert reloaded.status == expected_status
     if returns_failed:
+        # 4-я неудача: mark_failed переводит в failed, НЕ инкрементируя
+        # attempt_count и НЕ очищая locked_at_utc (он остаётся как у sending).
+        assert reloaded.attempt_count == attempt_before
+        assert reloaded.locked_at_utc == fixed_now.isoformat()
         return
     assert reloaded.attempt_count == expected_attempt
     assert reloaded.locked_at_utc is None

@@ -12,7 +12,7 @@
 """
 
 import inspect
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -664,7 +664,7 @@ async def test_cmd_todos_nulls_last(session_factory):  # noqa: ANN001
 # --- Logic-тесты: выполненные задачи ---
 
 
-async def test_cmd_completed_list(session, session_factory):  # noqa: ANN001
+async def test_cmd_completed_list(session, session_factory, fixed_now):  # noqa: ANN001
     """``/completed`` выводит выполненные задачи с клавиатурой удаления."""
     await cmd_todo(_private_message("/todo Готовая задача"))
     todos = (
@@ -676,7 +676,7 @@ async def test_cmd_completed_list(session, session_factory):  # noqa: ANN001
         session=session,
         todo_id=todo_id,
         user_id=123,
-        now=datetime.now(UTC),
+        now=fixed_now,
     )
 
     message = _private_message("/completed")

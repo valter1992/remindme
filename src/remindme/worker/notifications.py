@@ -172,9 +172,10 @@ async def _deliver_one(
                 "reminder delivery transient failure",
                 extra={
                     "user_id": reminder.user_id,
-                    "attempt_count": reminder.attempt_count,
                     "failed": failed,
                     "duration_s": round(time.monotonic() - started, 3),
+                    # ``str(error)`` — сообщение Telegram об ошибке; текст записи и
+                    # токен сюда не попадают.
                     "error": str(error),
                 },
             )

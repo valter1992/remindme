@@ -322,3 +322,80 @@ def test_parse_remind_time_text_length_boundaries(
     else:
         assert isinstance(result, ParseError)
         assert result.kind == expect_kind
+
+
+# --- Граничные/edge-case тесты: суффикс бота, пробелы, переполнение, today/tomorrow ---
+
+
+def test_parse_remind_time_command_strips_bot_suffix() -> None:
+    """``/remind@BotName <время> | <текст>`` — суффикс имени бота отсекается."""
+    result = parse_remind_time(
+        "/remind@MyBot через 15 минут | дело",
+        _NOW,
+        "Europe/Moscow",
+        "09:00",
+    )
+
+    assert isinstance(result, ParsedReminder)
+    assert result.remind_at_utc == _NOW + timedelta(minutes=15)
+    assert result.text == "дело"
+
+
+def test_parse_remind_time_phrase_leading_whitespace() -> None:
+    """Фраза с ведущими пробелами разбирается (фильтр обработчика их допускает)."""
+    result = parse_remind_time(
+        "   напомни мне через 15 минут дело",
+        _NOW,
+        "Europe/Moscow",
+        "09:00",
+    )
+
+    assert isinstance(result, ParsedReminder)
+    assert result.remind_at_utc == _NOW + timedelta(minutes=15)
+    assert result.text == "дело"
+
+
+@pytest.mark.parametrize("unit", ["минут", "часов", "дней"])
+def test_parse_remind_time_huge_relative_n_is_horizon(unit: str) -> None:
+    """Астрономически большое N → ``horizon_exceeded`` (а не OverflowError)."""
+    result = parse_remind_time(
+        f"напомни через 99999999999999999999 {unit} дело",
+        _NOW,
+        "Europe/Moscow",
+        "09:00",
+    )
+
+    assert isinstance(result, ParseError)
+    assert result.kind == "horizon_exceeded"
+
+
+def test_parse_remind_time_tomorrow_default_time() -> None:
+    """«завтра» без явного времени → завтра в ``default_time`` (Москва UTC+3)."""
+    result = parse_remind_time(
+        "напомни завтра годовщина",
+        _NOW,  # 2026-06-24 12:00 UTC = 15:00 Moscow
+        "Europe/Moscow",
+        "09:00",
+    )
+
+    assert isinstance(result, ParsedReminder)
+    # 2026-06-25 09:00 MSK = 06:00 UTC
+    assert result.remind_at_utc == datetime(2026, 6, 25, 6, 0, tzinfo=UTC)
+    assert result.text == "годовщина"
+
+
+def test_parse_remind_time_today_explicit_time() -> None:
+    """«сегодня в HH:MM» — локальное время сегодня, в будущем."""
+    now = datetime(2026, 6, 24, 6, 0, tzinfo=UTC)  # 09:00 Moscow
+
+    result = parse_remind_time(
+        "напомни сегодня в 18:00 ужин",
+        now,
+        "Europe/Moscow",
+        "09:00",
+    )
+
+    assert isinstance(result, ParsedReminder)
+    # сегодня 18:00 MSK = 15:00 UTC
+    assert result.remind_at_utc == datetime(2026, 6, 24, 15, 0, tzinfo=UTC)
+    assert result.text == "ужин"

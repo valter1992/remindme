@@ -168,6 +168,8 @@ async def _redraw_todos(callback: CallbackQuery, session, user_id: int) -> None:
         session: открытая ``AsyncSession``.
         user_id: владелец задач.
     """
+    if callback.message is None:  # недоступное сообщение не редактировать
+        return
     timezone = await _user_timezone(session, user_id)
     todos = await list_todos(session=session, user_id=user_id)
     keyboard = todos_keyboard([todo.id for todo in todos])
@@ -185,6 +187,8 @@ async def _redraw_notes(callback: CallbackQuery, session, user_id: int) -> None:
         session: открытая ``AsyncSession``.
         user_id: владелец заметок.
     """
+    if callback.message is None:  # недоступное сообщение не редактировать
+        return
     timezone = await _user_timezone(session, user_id)
     notes = await list_notes(session=session, user_id=user_id)
     keyboard = notes_keyboard([note.id for note in notes])
@@ -202,6 +206,8 @@ async def _redraw_completed(callback: CallbackQuery, session, user_id: int) -> N
         session: открытая ``AsyncSession``.
         user_id: владелец задач.
     """
+    if callback.message is None:  # недоступное сообщение не редактировать
+        return
     timezone = await _user_timezone(session, user_id)
     todos = await list_completed(session=session, user_id=user_id)
     keyboard = completed_keyboard([todo.id for todo in todos])
@@ -219,6 +225,8 @@ async def _redraw_reminders(callback: CallbackQuery, session, user_id: int) -> N
         session: открытая ``AsyncSession``.
         user_id: владелец напоминаний.
     """
+    if callback.message is None:  # недоступное сообщение не редактировать
+        return
     timezone = await _user_timezone(session, user_id)
     reminders = await list_reminders(session=session, user_id=user_id)
     keyboard = reminders_keyboard([reminder.id for reminder in reminders])

@@ -72,9 +72,11 @@ _DAY_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
-# Префикс фразы «напомни [мне]».
+# Префикс фразы «напомни [мне]». Ведущие пробелы допускаются — так же, как в
+# фильтре обработчика ``_RemindPhrase``: иначе фраза с пробелом слева доходила бы
+# до парсера, но не разбиралась (``invalid_format``).
 _PHRASE_RE = re.compile(
-    r"^напомни\b(?:\s+мне\b)?\s*(?P<rest>.*)$",
+    r"^\s*напомни\b(?:\s+мне\b)?\s*(?P<rest>.*)$",
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -293,7 +295,12 @@ def _resolve_time(
     """
     if form == "relative":
         seconds = _UNIT_SECONDS[params["unit"]] * int(params["n"])  # type: ignore[index]
-        return now + timedelta(seconds=seconds)
+        # Астрономически большое N (напр. «через 99999999999999999999 дней») не
+        # помещается в timedelta — OverflowError; по смыслу это всё «за горизонтом».
+        try:
+            return now + timedelta(seconds=seconds)
+        except OverflowError:
+            return ParseError(kind="horizon_exceeded")
 
     try:
         tz = ZoneInfo(timezone)

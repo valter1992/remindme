@@ -33,8 +33,29 @@ __all__ = ["apply_migrations", "main", "set_commands"]
 logger = logging.getLogger(__name__)
 
 # Корень репозитория: здесь лежат ``alembic.ini`` и каталог миграций ``alembic/``.
-# ``main.py`` → ``main/`` → ``remindme/`` → ``src/`` → корень.
-_REPO_ROOT = Path(__file__).resolve().parents[3]
+# В checkout'е и при editable-установке это четвёртый родитель модуля
+# (``main.py`` → ``main/`` → ``remindme/`` → ``src/`` → корень). При установке в
+# ``site-packages`` (``pip install .`` в Docker) этого родителя там нет — тогда
+# корень ищется относительно текущего каталога (``WORKDIR`` образа, куда ``COPY``
+# положил ``alembic.ini`` и ``alembic/``).
+
+
+def _resolve_repo_root() -> Path:
+    """Возвращает каталог с ``alembic.ini`` и ``alembic/``.
+
+    Returns:
+        Корень репозитория (модуль-относительный, иначе текущий каталог).
+    """
+    module_root = Path(__file__).resolve().parents[3]
+    for candidate in (module_root, Path.cwd()):
+        if (candidate / "alembic.ini").is_file():
+            return candidate
+    # Ни один кандидат не подошёл — вернём модуль-относительный путь, чтобы
+    # отсутствие ``alembic.ini`` проявилось понятной ошибкой.
+    return module_root
+
+
+_REPO_ROOT = _resolve_repo_root()
 _ALEMBIC_INI = _REPO_ROOT / "alembic.ini"
 _ALEMBIC_DIR = _REPO_ROOT / "alembic"
 
