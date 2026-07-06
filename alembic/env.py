@@ -72,6 +72,9 @@ async def run_async_migrations() -> None:
     async with connectable.connect() as connection:
         # DDL и PRAGMA выполняются на синхронном адаптере через run_sync.
         await connection.run_sync(do_run_migrations)
+        # Явный commit фиксирует stamp версии (DDL SQLite уже авто-коммитится,
+        # а INSERT в alembic_version иначе откатывается при закрытии соединения).
+        await connection.commit()
     await connectable.dispose()
 
 

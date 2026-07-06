@@ -9,4 +9,6 @@ event loop. Схема мигрируется программно in-process ч
 ``alembic/`` + ``alembic.ini``).
 """
 
-__all__: list[str] = []
+from .main import apply_migrations, main, set_commands
+
+__all__ = ["apply_migrations", "main", "set_commands"]

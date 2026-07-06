@@ -842,16 +842,16 @@ DTO `ParsedReminder`/`ParseError` — pydantic `kw_only`. `now` — параме
 
 **CRITICAL: `CODEMANIFEST` files — read-only. Контракт: main.py; миграции до polling, идемпотентны, токен не логируется.**
 
-- [ ] **Task declaration**: Task 26 (`main` — entrypoint).
-- [ ] **Contract tests** (`tests/main/test_main.py`): фасад `from remindme.main import set_commands, apply_migrations, main`; сигнатуры.
-- [ ] **Code**: `set_commands(bot)` (`set_my_commands` для всех команд этапов 1-4); `apply_migrations` (`command.upgrade("head")` программно); `main()` (apply_migrations→get_settings→engine/factory→Bot/Dispatcher→register_handlers→set_commands→`asyncio.create_task(run_reminder_worker(...))`→`delete_webhook(drop_pending_updates=True)`→`start_polling`); `__main__.py` (`asyncio.run(main())`).
-- [ ] **Code**: создать начальную ревизию (`alembic revision --autogenerate` против моделей, или авторская) в `versions/` — 4 таблицы (`users`, `reminders`, `notes`, `todos`) с PK/UNIQUE/FK, соответствующие `Base.metadata`.
-- [ ] **Code**: добавить `set_commands, apply_migrations, main` в фасад `__init__.py`.
-- [ ] **Interface verification**: `pytest tests/main/test_main.py -v`.
-- [ ] **Logic tests**: `test_set_commands_calls_set_my_commands` (mock `Bot`, проверить набор `BotCommand`); `test_apply_migrations_creates_schema_and_idempotent` (через `tmp_path` движок: `upgrade head` дважды — второй no-op; схема содержит 4 таблицы); `test_main_assembles_and_starts_polling` (mock Bot/Dispatcher/worker — `skipif` реального Telegram; проверить порядок вызовов, `delete_webhook(drop_pending_updates=True)`, `create_task` worker); `test_initial_revision_matches_metadata` (autogenerate-diff против `Base.metadata` пуст после upgrade).
-- [ ] **Debugging**: `pytest tests/main/test_main.py -x`.
-- [ ] **Contract re-verification**: миграции до polling, идемпотентность, один процесс/loop, токен не логируется.
-- [ ] **Lint**: `ruff check src/remindme/main/`.
+- [x] **Task declaration**: Task 26 (`main` — entrypoint).
+- [x] **Contract tests** (`tests/main/test_main.py`): фасад `from remindme.main import set_commands, apply_migrations, main`; сигнатуры.
+- [x] **Code**: `set_commands(bot)` (`set_my_commands` для всех команд этапов 1-4); `apply_migrations` (`command.upgrade("head")` программно); `main()` (apply_migrations→get_settings→engine/factory→Bot/Dispatcher→register_handlers→set_commands→`asyncio.create_task(run_reminder_worker(...))`→`delete_webhook(drop_pending_updates=True)`→`start_polling`); `__main__.py` (`asyncio.run(main())`).
+- [x] **Code**: создать начальную ревизию (`alembic revision --autogenerate` против моделей, или авторская) в `versions/` — 4 таблицы (`users`, `reminders`, `notes`, `todos`) с PK/UNIQUE/FK, соответствующие `Base.metadata`.
+- [x] **Code**: добавить `set_commands, apply_migrations, main` в фасад `__init__.py`.
+- [x] **Interface verification**: `pytest tests/main/test_main.py -v`.
+- [x] **Logic tests**: `test_set_commands_calls_set_my_commands` (mock `Bot`, проверить набор `BotCommand`); `test_apply_migrations_creates_schema_and_idempotent` (через `tmp_path` движок: `upgrade head` дважды — второй no-op; схема содержит 4 таблицы); `test_main_assembles_and_starts_polling` (mock Bot/Dispatcher/worker — `skipif` реального Telegram; проверить порядок вызовов, `delete_webhook(drop_pending_updates=True)`, `create_task` worker); `test_initial_revision_matches_metadata` (autogenerate-diff против `Base.metadata` пуст после upgrade).
+- [x] **Debugging**: `pytest tests/main/test_main.py -x`.
+- [x] **Contract re-verification**: миграции до polling, идемпотентность, один процесс/loop, токен не логируется.
+- [x] **Lint**: `ruff check src/remindme/main/`.
 
 ---
 

@@ -39,5 +39,10 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "C4"]
 
+[tool.ruff.lint.isort]
+# Локальный каталог ``alembic/`` (миграции) затеняет установленный пакет
+# ``alembic`` — явно считаем его сторонним, чтобы isort не дробил импорты.
+known-third-party = ["alembic"]
+
 [tool.ruff.format]
 quote-style = "double"
