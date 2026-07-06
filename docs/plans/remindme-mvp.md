@@ -822,11 +822,11 @@ DTO `ParsedReminder`/`ParseError` — pydantic `kw_only`. `now` — параме
 
 **CRITICAL: `CODEMANIFEST` files — read-only.**
 
-- [ ] Создать `src/remindme/main/__init__.py` (docstring, `__all__: list[str] = []`).
-- [ ] Создать `tests/main/__init__.py`.
-- [ ] Создать alembic-каркас: `alembic.ini` (sqlalchemy.url пуст — берётся из `env.py`), `alembic/env.py` (async-шаблон: `DATABASE_URL` из `get_settings`; `run_migrations_online` через `Connection.run_sync(do_run_migrations)`; `PRAGMA foreign_keys=ON` на connection), `alembic/script.py.mako`, пустой `alembic/versions/`. (Разместить alembic-директорию рядом с `main/` или внутри — единое место, согласованное с `deployment`.)
-- [ ] Verify: `alembic` доступен в venv; `python -c "import alembic.config"`; `python -c "import remindme.main"`.
-- [ ] Lint: `ruff check src/remindme/main/`.
+- [x] Создать `src/remindme/main/__init__.py` (docstring, `__all__: list[str] = []`).
+- [x] Создать `tests/main/__init__.py`.
+- [x] Создать alembic-каркас: `alembic.ini` (sqlalchemy.url пуст — берётся из `env.py`), `alembic/env.py` (async-шаблон: `DATABASE_URL` из `get_settings`; `run_migrations_online` через `Connection.run_sync(do_run_migrations)`; `PRAGMA foreign_keys=ON` на connection), `alembic/script.py.mako`, пустой `alembic/versions/`. (Разместить alembic-директорию рядом с `main/` или внутри — единое место, согласованное с `deployment`.)
+- [x] Verify: `alembic` доступен в venv; `python -c "import alembic.config"`; `python -c "import remindme.main"`.
+- [x] Lint: `ruff check src/remindme/main/`.
 
 ---
 
