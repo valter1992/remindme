@@ -572,15 +572,15 @@ DTO `ParsedReminder`/`ParseError` — pydantic `kw_only`. `now` — параме
 
 **CRITICAL: `CODEMANIFEST` files — read-only. Контракт: todos.py; некорректная дата слева от `|` НЕ ошибка.**
 
-- [ ] **Task declaration**: Task 14 (`services` — todos parser+scenario).
-- [ ] **Contract tests** (`tests/services/test_todos.py`): фасад `from remindme.services import TodoError, ParsedTodo, parse_todo_input, create_todo_scenario`; `ParsedTodo.due_at_utc: datetime | None`; `TodoError.kind` ∈ `empty_text/text_too_long`.
-- [ ] **Code**: `TodoError`, `ParsedTodo(due_at_utc, text)` (pydantic kw_only), `parse_todo_input` (есть `|` И левая==`ГГГГ-ММ-ДД ЧЧ:ММ` (`strptime`)→`due_raw`→aware UTC, `raw_text`=правая; иначе `due_at_utc=None`, `raw_text`=весь `raw`; `text=raw_text.strip()`; пусто→`empty_text`; `>500`→`text_too_long`), `create_todo_scenario` (parse→TodoError вернуть→`create_todo`).
-- [ ] **Code**: добавить имена в фасад.
-- [ ] **Interface verification**: `pytest tests/services/test_todos.py -v`.
-- [ ] **Logic tests**: `test_parse_todo_input_nondate_after_pipe` (`"не дата | Купить хлеб"` → `due_at_utc is None`, `text=="не дата | Купить хлеб"`, не `TodoError` — перенос дословно из дизайна); `test_parse_todo_input_valid_date_due`; `test_parse_todo_input_no_pipe_no_due`; `test_parse_todo_input_empty_text`; `test_parse_todo_input_too_long`; `test_create_todo_scenario_success_with_and_without_due`.
-- [ ] **Debugging**: `pytest tests/services/test_todos.py -x`.
-- [ ] **Contract re-verification**: lenient-правило `|` (по ТЗ), past допускается, без DST/горизонта, чистая функция.
-- [ ] **Lint**: `ruff check src/remindme/services/`.
+- [x] **Task declaration**: Task 14 (`services` — todos parser+scenario).
+- [x] **Contract tests** (`tests/services/test_todos.py`): фасад `from remindme.services import TodoError, ParsedTodo, parse_todo_input, create_todo_scenario`; `ParsedTodo.due_at_utc: datetime | None`; `TodoError.kind` ∈ `empty_text/text_too_long`.
+- [x] **Code**: `TodoError`, `ParsedTodo(due_at_utc, text)` (pydantic kw_only), `parse_todo_input` (есть `|` И левая==`ГГГГ-ММ-ДД ЧЧ:ММ` (`strptime`)→`due_raw`→aware UTC, `raw_text`=правая; иначе `due_at_utc=None`, `raw_text`=весь `raw`; `text=raw_text.strip()`; пусто→`empty_text`; `>500`→`text_too_long`), `create_todo_scenario` (parse→TodoError вернуть→`create_todo`).
+- [x] **Code**: добавить имена в фасад.
+- [x] **Interface verification**: `pytest tests/services/test_todos.py -v`.
+- [x] **Logic tests**: `test_parse_todo_input_nondate_after_pipe` (`"не дата | Купить хлеб"` → `due_at_utc is None`, `text=="не дата | Купить хлеб"`, не `TodoError` — перенос дословно из дизайна); `test_parse_todo_input_valid_date_due`; `test_parse_todo_input_no_pipe_no_due`; `test_parse_todo_input_empty_text`; `test_parse_todo_input_too_long`; `test_create_todo_scenario_success_with_and_without_due`.
+- [x] **Debugging**: `pytest tests/services/test_todos.py -x`.
+- [x] **Contract re-verification**: lenient-правило `|` (по ТЗ), past допускается, без DST/горизонта, чистая функция.
+- [x] **Lint**: `ruff check src/remindme/services/`.
 
 ---
 
