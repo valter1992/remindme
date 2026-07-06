@@ -415,15 +415,15 @@ async-фикстуру `session` (она используется logic-тест
 
 **CRITICAL: `CODEMANIFEST` files — read-only. Контракт: repositories.py (группа reminders).**
 
-- [ ] **Task declaration**: Task 7 (`db` — repositories: reminders+TZ).
-- [ ] **Contract tests** (`tests/db/test_repositories.py`): фасад `from remindme.db import create_reminder, list_reminders, cancel_reminder, set_user_timezone, CancelOutcome`; сигнатуры; `CancelOutcome.kind` варианты `cancelled/not_found/already_sending`.
-- [ ] **Code**: реализовать 5 сущностей: `CancelOutcome` (pydantic kw_only), `create_reminder` (datetime→ISO, `status="scheduled"`, `attempt_count=0`, `next_attempt_at_utc=remind_at_utc`, add+commit, rollback/re-raise), `list_reminders` (`status="scheduled"`, `order_by remind_at_utc asc`, `limit 20`, фильтр `user_id`), `cancel_reminder` (`UPDATE … WHERE id AND user_id AND status='scheduled'`, `rowcount==1`→`cancelled`, иначе доп. `SELECT status`→`already_sending`/`not_found`), `set_user_timezone` (`UPDATE User … WHERE telegram_user_id`, `rowcount==1`).
-- [ ] **Code**: добавить имена в фасад `__init__.py`.
-- [ ] **Interface verification**: `pytest tests/db/test_repositories.py -v -k "reminder or timezone or cancel"`.
-- [ ] **Logic tests**: `test_create_reminder_scheduled_defaults`; `test_list_reminders_limit` (21 запись → 20, только user_id=42, ближайшие по времени — перенос из дизайна **Test Stack Trace**); `test_list_reminders_isolates_by_user`; `test_cancel_reminder_scheduled_to_cancelled`; `test_cancel_reminder_already_sending`; `test_cancel_reminder_foreign_user_returns_not_found` (изоляция по владельцу, чужие не раскрываются); `test_set_user_timezone_rowcount`.
-- [ ] **Debugging**: `pytest tests/db/test_repositories.py -x -k "reminder or timezone or cancel"`.
-- [ ] **Contract re-verification**: изоляция `(id,user_id)`, ISO 8601, `rowcount`, `CancelOutcome` по контракту.
-- [ ] **Lint**: `ruff check src/remindme/db/`.
+- [x] **Task declaration**: Task 7 (`db` — repositories: reminders+TZ).
+- [x] **Contract tests** (`tests/db/test_repositories.py`): фасад `from remindme.db import create_reminder, list_reminders, cancel_reminder, set_user_timezone, CancelOutcome`; сигнатуры; `CancelOutcome.kind` варианты `cancelled/not_found/already_sending`.
+- [x] **Code**: реализовать 5 сущностей: `CancelOutcome` (pydantic kw_only), `create_reminder` (datetime→ISO, `status="scheduled"`, `attempt_count=0`, `next_attempt_at_utc=remind_at_utc`, add+commit, rollback/re-raise), `list_reminders` (`status="scheduled"`, `order_by remind_at_utc asc`, `limit 20`, фильтр `user_id`), `cancel_reminder` (`UPDATE … WHERE id AND user_id AND status='scheduled'`, `rowcount==1`→`cancelled`, иначе доп. `SELECT status`→`already_sending`/`not_found`), `set_user_timezone` (`UPDATE User … WHERE telegram_user_id`, `rowcount==1`).
+- [x] **Code**: добавить имена в фасад `__init__.py`.
+- [x] **Interface verification**: `pytest tests/db/test_repositories.py -v -k "reminder or timezone or cancel"`.
+- [x] **Logic tests**: `test_create_reminder_scheduled_defaults`; `test_list_reminders_limit` (21 запись → 20, только user_id=42, ближайшие по времени — перенос из дизайна **Test Stack Trace**); `test_list_reminders_isolates_by_user`; `test_cancel_reminder_scheduled_to_cancelled`; `test_cancel_reminder_already_sending`; `test_cancel_reminder_foreign_user_returns_not_found` (изоляция по владельцу, чужие не раскрываются); `test_set_user_timezone_rowcount`.
+- [x] **Debugging**: `pytest tests/db/test_repositories.py -x -k "reminder or timezone or cancel"`.
+- [x] **Contract re-verification**: изоляция `(id,user_id)`, ISO 8601, `rowcount`, `CancelOutcome` по контракту.
+- [x] **Lint**: `ruff check src/remindme/db/`.
 
 ---
 

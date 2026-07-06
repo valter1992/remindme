@@ -7,14 +7,26 @@
 """
 
 from .models import Base, Note, Reminder, Todo, User
+from .repositories import (
+    CancelOutcome,
+    cancel_reminder,
+    create_reminder,
+    list_reminders,
+    set_user_timezone,
+)
 from .session import create_engine, create_session_factory
 
 __all__ = [
     "Base",
+    "CancelOutcome",
     "Note",
     "Reminder",
     "Todo",
     "User",
+    "cancel_reminder",
     "create_engine",
+    "create_reminder",
     "create_session_factory",
+    "list_reminders",
+    "set_user_timezone",
 ]
