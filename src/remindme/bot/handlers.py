@@ -13,9 +13,11 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import UTC, datetime
 
-from aiogram.filters import BaseFilter
+from aiogram import Dispatcher
+from aiogram.filters import BaseFilter, Command, ExceptionTypeFilter
 from aiogram.types import ErrorEvent, Message
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -72,6 +74,7 @@ __all__ = [
     "handle_remind_phrase",
     "handle_text",
     "handle_unknown_command",
+    "register_handlers",
 ]
 
 logger = logging.getLogger(__name__)
@@ -128,6 +131,52 @@ class PrivateOnly(BaseFilter):
             ``True``, если сообщение из личного чата; иначе ``False``.
         """
         return message.chat.type == "private"
+
+
+# Регистронезависимый префикс фразы «напомни [мне] …»; граница слова после
+# префикса отсекает родственные формы («напомнить»).
+_REMIND_PHRASE_RE = re.compile(r"^\s*напомни(?:\s+мне)?\b", re.IGNORECASE)
+
+
+class _RemindPhrase(BaseFilter):
+    """Фильтр фразы «напомни [мне] …» в начале текста (``re.IGNORECASE``).
+
+    Регистрируется перед :func:`handle_text`, чтобы фраза не уходила в общий
+    разбор. Граница слова не даёт сработать на «напомнить» и подобных формах.
+    """
+
+    async def __call__(self, message: Message) -> bool:
+        """Возвращает ``True``, если текст начинается с «напомни».
+
+        Args:
+            message: входящее сообщение aiogram.
+
+        Returns:
+            ``True`` для подходящей фразы; ``False`` иначе (в т.ч. без текста).
+        """
+        text = getattr(message, "text", None)
+        return bool(text) and bool(_REMIND_PHRASE_RE.match(text))
+
+
+class _AnyCommand(BaseFilter):
+    """Фильтр «любая команда»: ловит нераспознанные команды (``/foobar``).
+
+    Регистрируется последним среди командных обработчиков — после всех
+    известных команд, — поэтому известные команды поглощаются своими
+    обработчиками, а до этого фильтра доходят только неизвестные команды.
+    """
+
+    async def __call__(self, message: Message) -> bool:
+        """Возвращает ``True``, если сообщение похоже на команду.
+
+        Args:
+            message: входящее сообщение aiogram.
+
+        Returns:
+            ``True``, если текст начинается с префикса команды ``/``.
+        """
+        text = getattr(message, "text", None)
+        return bool(text) and text.startswith("/")
 
 
 async def ensure_user(
@@ -592,3 +641,70 @@ def _error_code(exc: SQLAlchemyError) -> str:
         Имя класса исключения (напр. ``"OperationalError"``).
     """
     return type(exc).__name__
+
+
+# --- Registration facade (Task 22): единая точка подключения обработчиков ---
+
+
+def register_handlers(
+    dp: Dispatcher,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Фасад регистрации всех обработчиков в aiogram-диспетчере.
+
+    Замыкает ``session_factory`` в пишущих обработчиках (установка модульной
+    ``_session_factory``) и регистрирует обработчики в порядке, требуемом
+    контрактом: сначала все конкретные команды (``PrivateOnly`` + ``Command``),
+    затем :func:`handle_unknown_command` (ловушка для нераспознанных команд),
+    затем :func:`handle_remind_phrase` (фраза «напомни»), :func:`handle_text`
+    (общий текст) и последним без ``PrivateOnly`` — :func:`handle_group`
+    (сообщения из групп). После — :func:`handle_callback` через
+    ``dp.callback_query`` и :func:`handle_db_error` как errors-handler с
+    фильтром :class:`SQLAlchemyError`. Порядок критичен: первый подошедший
+    обработчик выигрывает, поэтому «жадные» обработчики (любая команда, общий
+    текст, группы) идут после конкретных.
+
+    Args:
+        dp: aiogram ``Dispatcher`` точки входа.
+        session_factory: фабрика сессий, построенная точкой входа один раз;
+            замыкается в пишущих обработчиках для открытия сессии.
+    """
+    global _session_factory
+    _session_factory = session_factory
+
+    # Отложенный импорт исключает цикл: callbacks импортирует этот модуль.
+    from .callbacks import handle_callback
+
+    private = PrivateOnly()
+
+    # Конкретные команды (PrivateOnly + Command) — раньше «жадных» обработчиков.
+    dp.message.register(cmd_start, private, Command("start"))
+    dp.message.register(cmd_help, private, Command("help"))
+    dp.message.register(cmd_remind, private, Command("remind"))
+    dp.message.register(cmd_reminders, private, Command("reminders"))
+    dp.message.register(cmd_timezone, private, Command("timezone"))
+    dp.message.register(cmd_cancel, private, Command("cancel"))
+    dp.message.register(cmd_note, private, Command("note"))
+    dp.message.register(cmd_notes, private, Command("notes"))
+    dp.message.register(cmd_todo, private, Command("todo"))
+    dp.message.register(cmd_todos, private, Command("todos"))
+    dp.message.register(cmd_completed, private, Command("completed"))
+
+    # Ловушка нераспознанных команд — после конкретных, до текстовых.
+    dp.message.register(handle_unknown_command, private, _AnyCommand())
+
+    # Фраза «напомни …» — раньше общего текста, чтобы не уйти в общий разбор.
+    dp.message.register(handle_remind_phrase, private, _RemindPhrase())
+
+    # Общий текст в личке — последний среди приватных (ловит всё остальное).
+    dp.message.register(handle_text, private)
+
+    # Группы — последним и без PrivateOnly: приватные сообщения поглощены выше,
+    # групповые доходят сюда.
+    dp.message.register(handle_group)
+
+    # Callback-роутер inline-кнопок.
+    dp.callback_query.register(handle_callback)
+
+    # Централизованный errors-handler БД — только SQLAlchemyError.
+    dp.errors.register(handle_db_error, ExceptionTypeFilter(SQLAlchemyError))

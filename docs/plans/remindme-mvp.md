@@ -754,15 +754,15 @@ DTO `ParsedReminder`/`ParseError` — pydantic `kw_only`. `now` — параме
 
 **CRITICAL: `CODEMANIFEST` files — read-only. Контракт: handlers.py (register_handlers); `main` зависит от этого фасада.**
 
-- [ ] **Task declaration**: Task 22 (`bot` — register_handlers).
-- [ ] **Contract tests** (`tests/bot/test_register_handlers.py`): фасад `from remindme.bot import register_handlers`; сигнатура `register_handlers(dp, session_factory)`; с mock `Dispatcher` регистрируются все handler'ы, `handle_callback`, `handle_db_error`.
-- [ ] **Code**: `register_handlers` — зарегистрировать фазу 1+remind handlers с `PrivateOnly`+`Command`; `handle_remind_phrase` перед `handle_text`; `handle_group` последним без `PrivateOnly`; phase3/4 команды; `handle_callback` через `dp.callback_query(...)`; `handle_db_error` как errors-handler с фильтром `SQLAlchemyError`; замкнуть `session_factory`.
-- [ ] **Code**: добавить `register_handlers` в фасад `__init__.py`.
-- [ ] **Interface verification**: `pytest tests/bot/test_register_handlers.py -v`.
-- [ ] **Logic tests**: `test_register_handlers_orders_group_last` (через mock `dp` инспектировать порядок/фильтры); `test_register_handlers_registers_callback_and_error_handler`; `test_register_handlers_attaches_privateonly`.
-- [ ] **Debugging**: `pytest tests/bot/test_register_handlers.py -x`.
-- [ ] **Contract re-verification**: порядок регистрации и `handle_group` последним — по контракту; фасад `from remindme.bot import register_handlers`.
-- [ ] **Lint**: `ruff check src/remindme/bot/`.
+- [x] **Task declaration**: Task 22 (`bot` — register_handlers).
+- [x] **Contract tests** (`tests/bot/test_register_handlers.py`): фасад `from remindme.bot import register_handlers`; сигнатура `register_handlers(dp, session_factory)`; с mock `Dispatcher` регистрируются все handler'ы, `handle_callback`, `handle_db_error`.
+- [x] **Code**: `register_handlers` — зарегистрировать фазу 1+remind handlers с `PrivateOnly`+`Command`; `handle_remind_phrase` перед `handle_text`; `handle_group` последним без `PrivateOnly`; phase3/4 команды; `handle_callback` через `dp.callback_query(...)`; `handle_db_error` как errors-handler с фильтром `SQLAlchemyError`; замкнуть `session_factory`.
+- [x] **Code**: добавить `register_handlers` в фасад `__init__.py`.
+- [x] **Interface verification**: `pytest tests/bot/test_register_handlers.py -v`.
+- [x] **Logic tests**: `test_register_handlers_orders_group_last` (через mock `dp` инспектировать порядок/фильтры); `test_register_handlers_registers_callback_and_error_handler`; `test_register_handlers_attaches_privateonly`.
+- [x] **Debugging**: `pytest tests/bot/test_register_handlers.py -x`.
+- [x] **Contract re-verification**: порядок регистрации и `handle_group` последним — по контракту; фасад `from remindme.bot import register_handlers`.
+- [x] **Lint**: `ruff check src/remindme/bot/`.
 
 ---
 

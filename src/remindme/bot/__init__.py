@@ -42,6 +42,7 @@ from .handlers import (
     handle_remind_phrase,
     handle_text,
     handle_unknown_command,
+    register_handlers,
 )
 from .keyboards import (
     completed_keyboard,
@@ -84,6 +85,7 @@ __all__ = [
     "handle_text",
     "handle_unknown_command",
     "notes_keyboard",
+    "register_handlers",
     "reminders_keyboard",
     "to_local_string",
     "todos_keyboard",
