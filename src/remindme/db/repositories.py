@@ -9,7 +9,7 @@ Timestamp-поля — строки ISO 8601 UTC. Возврат ``rowcount`` о
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import delete, nullslast, select, update
@@ -21,16 +21,22 @@ from .models import Note, Reminder, Todo, User
 __all__ = [
     "CancelOutcome",
     "cancel_reminder",
+    "claim_for_sending",
     "complete_todo",
     "create_note",
     "create_reminder",
     "create_todo",
     "delete_note",
     "delete_todo",
+    "find_due_reminders",
     "list_completed",
     "list_notes",
     "list_reminders",
     "list_todos",
+    "mark_failed",
+    "mark_sent",
+    "recover_stuck_sending",
+    "record_send_failure",
     "set_user_timezone",
 ]
 
@@ -501,3 +507,213 @@ async def delete_todo(
         raise
 
     return status == "completed"
+
+
+# --- Worker: delivery primitives ---
+
+
+async def find_due_reminders(session: AsyncSession, now: datetime) -> list[Reminder]:
+    """Возвращает напоминания, готовые к доставке, не меняя статус.
+
+    Готовность — ``status='scheduled'`` И ``next_attempt_at_utc <= now`` (сравнение
+    ISO 8601 строк лексикографически корректно при фиксированном формате). Захват
+    записи выполняется отдельно — ``claim_for_sending``; эта функция только выбирает.
+
+    Args:
+        session: открытая ``AsyncSession``.
+        now: текущий aware-UTC момент.
+
+    Returns:
+        Список ``Reminder`` в статусе ``scheduled`` с наступившим
+        ``next_attempt_at_utc``.
+    """
+    now_iso = now.isoformat()
+    stmt = select(Reminder).where(
+        Reminder.status == "scheduled",
+        Reminder.next_attempt_at_utc <= now_iso,
+    )
+    result = await session.execute(stmt)
+
+    return list(result.scalars().all())
+
+
+async def claim_for_sending(
+    session: AsyncSession,
+    reminder_id: int,
+    now: datetime,
+) -> bool:
+    """Атомарно захватывает напоминание scheduled→sending.
+
+    Фильтр ``status='scheduled'`` в ``WHERE`` + ``rowcount == 1`` гарантируют, что
+    две итерации цикла доставки не заберут одну запись: повторный claim уже
+    захваченной записи вернёт ``False``. Проставляет ``locked_at_utc`` моментом захвата.
+
+    Args:
+        session: открытая ``AsyncSession``.
+        reminder_id: идентификатор напоминания.
+        now: момент захвата (aware UTC) для ``locked_at_utc``.
+
+    Returns:
+        ``True``, если захвачена ровно одна scheduled-запись (``rowcount == 1``);
+        иначе ``False`` (уже захвачена/изменена/отсутствует).
+    """
+    stmt = (
+        update(Reminder)
+        .where(Reminder.id == reminder_id, Reminder.status == "scheduled")
+        .values(status="sending", locked_at_utc=now.isoformat())
+    )
+    result = await session.execute(stmt)
+
+    if result.rowcount == 1:
+        await session.commit()
+        return True
+
+    return False
+
+
+async def mark_sent(
+    session: AsyncSession,
+    reminder_id: int,
+    now: datetime,
+) -> None:
+    """Отмечает напоминание отправленным: ``status='sent'``, ``sent_at_utc=now``.
+
+    Вызывается worker после успешной ``bot.send_message``; фильтр только по ``id``
+    (запись уже захвачена и принадлежит захватившему процессу).
+
+    Args:
+        session: открытая ``AsyncSession``.
+        reminder_id: идентификатор напоминания.
+        now: момент отправки (aware UTC) для ``sent_at_utc``.
+    """
+    stmt = (
+        update(Reminder)
+        .where(Reminder.id == reminder_id)
+        .values(status="sent", sent_at_utc=now.isoformat())
+    )
+    await session.execute(stmt)
+    await session.commit()
+
+
+async def mark_failed(session: AsyncSession, reminder_id: int) -> bool:
+    """Переводит напоминание sending→failed без инкремента ``attempt_count``.
+
+    Атомарный переход через ``WHERE status='sending'``: блокировка бота пользователем
+    (``TelegramForbiddenError``) завершает доставку сразу, без повторов. ``rowcount``
+    отличает «завершено» от «уже не sending».
+
+    Args:
+        session: открытая ``AsyncSession``.
+        reminder_id: идентификатор напоминания.
+
+    Returns:
+        ``True``, если переведена ровно одна sending-запись (``rowcount == 1``);
+        иначе ``False``.
+    """
+    stmt = (
+        update(Reminder)
+        .where(Reminder.id == reminder_id, Reminder.status == "sending")
+        .values(status="failed")
+    )
+    result = await session.execute(stmt)
+
+    if result.rowcount == 1:
+        await session.commit()
+        return True
+
+    return False
+
+
+async def record_send_failure(
+    session: AsyncSession,
+    reminder_id: int,
+    now: datetime,
+) -> bool:
+    """Регистрирует неудачу доставки: повтор по 30/120/600 c или ``failed`` на 4-й.
+
+    Считывает ``attempt_count``; ``new_count = attempt_count + 1``. При
+    ``new_count >= 4`` делегирует ``mark_failed`` и возвращает ``True``. Иначе
+    назначает следующий attempt: ``status='scheduled'``, ``attempt_count=new_count``,
+    ``next_attempt_at_utc = now + {1:30, 2:120, 3:600}[new_count]`` секунд,
+    ``locked_at_utc = None`` — и возвращает ``False``. Текст записи и токен в лог не
+    попадают.
+
+    Args:
+        session: открытая ``AsyncSession``.
+        reminder_id: идентификатор напоминания (в статусе ``sending``).
+        now: момент неудачи (aware UTC) — база для отсрочки.
+
+    Returns:
+        ``True``, если запись переведена в ``failed`` (4-я неудача); ``False``, если
+        назначен повтор.
+    """
+    count_stmt = select(Reminder.attempt_count).where(Reminder.id == reminder_id)
+    count_result = await session.execute(count_stmt)
+    attempt_count = count_result.scalar_one()
+
+    new_count = attempt_count + 1
+
+    if new_count >= 4:
+        return await mark_failed(session=session, reminder_id=reminder_id)
+
+    delay = {1: 30, 2: 120, 3: 600}[new_count]
+    next_attempt = now + timedelta(seconds=delay)
+
+    stmt = (
+        update(Reminder)
+        .where(Reminder.id == reminder_id)
+        .values(
+            status="scheduled",
+            attempt_count=new_count,
+            next_attempt_at_utc=next_attempt.isoformat(),
+            locked_at_utc=None,
+        )
+    )
+    try:
+        await session.execute(stmt)
+        await session.commit()
+    except SQLAlchemyError:
+        await session.rollback()
+        logger.error(
+            "reminder send failure record failed",
+            extra={"reminder_id": reminder_id, "new_attempt_count": new_count},
+        )
+        raise
+
+    return False
+
+
+async def recover_stuck_sending(
+    session: AsyncSession,
+    now: datetime,
+    stale_after_seconds: int = 60,
+) -> int:
+    """Возвращает зависшие записи ``sending`` обратно в ``scheduled`` при старте.
+
+    Запись считается зависшей, если ``status='sending'`` И ``locked_at_utc`` старше
+    порога ``now - stale_after_seconds``. Такие записи возвращаются в ``scheduled`` с
+    обнулённым ``locked_at_utc`` и в следующем тике снова выбираются
+    ``find_due_reminders``. ``NULL``-зафиксированные записи сравнением не
+    захватываются (``NULL <= x`` ложно в SQL).
+
+    Args:
+        session: открытая ``AsyncSession``.
+        now: текущий aware-UTC момент.
+        stale_after_seconds: порог «зависания» в секундах (по умолчанию 60).
+
+    Returns:
+        Количество возвращённых записей (``rowcount``).
+    """
+    threshold = (now - timedelta(seconds=stale_after_seconds)).isoformat()
+    stmt = (
+        update(Reminder)
+        .where(
+            Reminder.status == "sending",
+            Reminder.locked_at_utc <= threshold,
+        )
+        .values(status="scheduled", locked_at_utc=None)
+    )
+    result = await session.execute(stmt)
+    await session.commit()
+
+    return result.rowcount

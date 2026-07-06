@@ -463,15 +463,15 @@ async-фикстуру `session` (она используется logic-тест
 
 **CRITICAL: `CODEMANIFEST` files — read-only. Контракт: repositories.py (группа delivery).**
 
-- [ ] **Task declaration**: Task 9 (`db` — repositories: delivery).
-- [ ] **Contract tests** (`tests/db/test_repositories.py`): фасад `from remindme.db import find_due_reminders, claim_for_sending, mark_sent, mark_failed, record_send_failure, recover_stuck_sending`; сигнатуры; `record_send_failure -> bool`; `recover_stuck_sending(...) -> int`.
-- [ ] **Code**: реализовать 6 сущностей строго по Algorithm контракта: `find_due_reminders` (ISO `now`, `next_attempt_at_utc <= now_iso`, без перевода статуса), `claim_for_sending` (`UPDATE … SET status='sending', locked_at_utc WHERE id AND status='scheduled'`, `rowcount==1`), `mark_sent` (`status='sent'`, `sent_at_utc`), `mark_failed` (`status='failed' WHERE id AND status='sending'`, `rowcount==1`, без инкремента), `record_send_failure` (`SELECT attempt_count`; `new_count+1`; `>=4`→`mark_failed`→`True`; иначе `delay={1:30,2:120,3:600}[new_count]`, `UPDATE status='scheduled', attempt_count, next_attempt_at_utc=now+delay, locked_at_utc=NULL`→`False`), `recover_stuck_sending` (`threshold=now-60s`; `UPDATE status='scheduled', locked_at_utc=NULL WHERE status='sending' AND locked_at_utc<=threshold`; `rowcount`).
-- [ ] **Code**: добавить имена в фасад `__init__.py`.
-- [ ] **Interface verification**: `pytest tests/db/test_repositories.py -v -k "due or claim or sent or failed or failure or recover"`.
-- [ ] **Logic tests**: `test_find_due_reminders_lexicographic_iso` (просроченные `scheduled`, не трогает `sent`/`cancelled`); `test_claim_for_sending_atomic_rowcount` (повторный claim той же записи → `False`); `test_mark_sent_sets_sent_at`; `test_mark_failed_only_sending`; `test_record_send_failure_schedule` (parametrize `attempt_count` ∈ {0,1,2,3}: 0→scheduled/attempt=1/+30s/False; 1→+120s; 2→+600s; 3→failed/True — перенос дословно из дизайна **Test Stack Trace**); `test_recover_stuck_sending_at_startup` (`sending` с `locked_at_utc<=now-60s`→`scheduled`, запись остаётся due — перенос из дизайна).
-- [ ] **Debugging**: `pytest tests/db/test_repositories.py -x -k "due or claim or sent or failed or failure or recover"`.
-- [ ] **Contract re-verification**: атомарный захват, расписание 30/120/600, 4-я→failed, recovery по порогу 60 с — по контракту и Trace B.
-- [ ] **Lint**: `ruff check src/remindme/db/`.
+- [x] **Task declaration**: Task 9 (`db` — repositories: delivery).
+- [x] **Contract tests** (`tests/db/test_repositories.py`): фасад `from remindme.db import find_due_reminders, claim_for_sending, mark_sent, mark_failed, record_send_failure, recover_stuck_sending`; сигнатуры; `record_send_failure -> bool`; `recover_stuck_sending(...) -> int`.
+- [x] **Code**: реализовать 6 сущностей строго по Algorithm контракта: `find_due_reminders` (ISO `now`, `next_attempt_at_utc <= now_iso`, без перевода статуса), `claim_for_sending` (`UPDATE … SET status='sending', locked_at_utc WHERE id AND status='scheduled'`, `rowcount==1`), `mark_sent` (`status='sent'`, `sent_at_utc`), `mark_failed` (`status='failed' WHERE id AND status='sending'`, `rowcount==1`, без инкремента), `record_send_failure` (`SELECT attempt_count`; `new_count+1`; `>=4`→`mark_failed`→`True`; иначе `delay={1:30,2:120,3:600}[new_count]`, `UPDATE status='scheduled', attempt_count, next_attempt_at_utc=now+delay, locked_at_utc=NULL`→`False`), `recover_stuck_sending` (`threshold=now-60s`; `UPDATE status='scheduled', locked_at_utc=NULL WHERE status='sending' AND locked_at_utc<=threshold`; `rowcount`).
+- [x] **Code**: добавить имена в фасад `__init__.py`.
+- [x] **Interface verification**: `pytest tests/db/test_repositories.py -v -k "due or claim or sent or failed or failure or recover"`.
+- [x] **Logic tests**: `test_find_due_reminders_lexicographic_iso` (просроченные `scheduled`, не трогает `sent`/`cancelled`); `test_claim_for_sending_atomic_rowcount` (повторный claim той же записи → `False`); `test_mark_sent_sets_sent_at`; `test_mark_failed_only_sending`; `test_record_send_failure_schedule` (parametrize `attempt_count` ∈ {0,1,2,3}: 0→scheduled/attempt=1/+30s/False; 1→+120s; 2→+600s; 3→failed/True — перенос дословно из дизайна **Test Stack Trace**); `test_recover_stuck_sending_at_startup` (`sending` с `locked_at_utc<=now-60s`→`scheduled`, запись остаётся due — перенос из дизайна).
+- [x] **Debugging**: `pytest tests/db/test_repositories.py -x -k "due or claim or sent or failed or failure or recover"`.
+- [x] **Contract re-verification**: атомарный захват, расписание 30/120/600, 4-я→failed, recovery по порогу 60 с — по контракту и Trace B.
+- [x] **Lint**: `ruff check src/remindme/db/`.
 
 ---
 

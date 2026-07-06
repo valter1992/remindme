@@ -20,16 +20,22 @@ from remindme.db import (
     Todo,
     User,
     cancel_reminder,
+    claim_for_sending,
     complete_todo,
     create_note,
     create_reminder,
     create_todo,
     delete_note,
     delete_todo,
+    find_due_reminders,
     list_completed,
     list_notes,
     list_reminders,
     list_todos,
+    mark_failed,
+    mark_sent,
+    record_send_failure,
+    recover_stuck_sending,
     set_user_timezone,
 )
 
@@ -737,6 +743,334 @@ async def test_delete_todo_was_completed_none_true_false(
         assert reloaded is not None  # чужая запись осталась нетронутой
     else:
         assert reloaded is None  # своя запись удалена
+
+
+# --- Контракт-тесты: delivery primitives (Task 9) ---
+
+
+def test_facade_exports_delivery_repositories() -> None:
+    """Фасад экспортирует шесть delivery-примитивов worker."""
+    assert callable(find_due_reminders)
+    assert callable(claim_for_sending)
+    assert callable(mark_sent)
+    assert callable(mark_failed)
+    assert callable(record_send_failure)
+    assert callable(recover_stuck_sending)
+
+
+def test_find_due_reminders_signature() -> None:
+    """``find_due_reminders(session, now)``."""
+    params = find_due_reminders.__code__.co_varnames[
+        : find_due_reminders.__code__.co_argcount
+    ]
+    assert params == ("session", "now")
+
+
+def test_claim_for_sending_signature() -> None:
+    """``claim_for_sending(session, reminder_id, now) -> bool``."""
+    params = claim_for_sending.__code__.co_varnames[
+        : claim_for_sending.__code__.co_argcount
+    ]
+    assert params == ("session", "reminder_id", "now")
+
+
+def test_mark_sent_signature() -> None:
+    """``mark_sent(session, reminder_id, now)``."""
+    params = mark_sent.__code__.co_varnames[: mark_sent.__code__.co_argcount]
+    assert params == ("session", "reminder_id", "now")
+
+
+def test_mark_failed_signature() -> None:
+    """``mark_failed(session, reminder_id) -> bool``."""
+    params = mark_failed.__code__.co_varnames[: mark_failed.__code__.co_argcount]
+    assert params == ("session", "reminder_id")
+
+
+def test_record_send_failure_signature() -> None:
+    """``record_send_failure(session, reminder_id, now) -> bool``."""
+    params = record_send_failure.__code__.co_varnames[
+        : record_send_failure.__code__.co_argcount
+    ]
+    assert params == ("session", "reminder_id", "now")
+
+
+def test_recover_stuck_sending_signature() -> None:
+    """``recover_stuck_sending(session, now, stale_after_seconds=60) -> int``."""
+    code = recover_stuck_sending.__code__
+    params = code.co_varnames[: code.co_argcount]
+    assert params == ("session", "now", "stale_after_seconds")
+    assert recover_stuck_sending.__defaults__ == (60,)
+
+
+# --- Logic-тесты: delivery primitives ---
+
+
+async def _make_reminder(
+    session: AsyncSession,
+    user_id: int,
+    *,
+    remind_at_utc,
+    now,
+    status: str = "scheduled",
+    attempt_count: int = 0,
+    next_attempt_at_utc=None,
+    locked_at_utc=None,
+) -> Reminder:
+    """Создаёт напоминание и (опц.) переопределяет служебные поля напрямую в БД."""
+    reminder = await create_reminder(
+        session=session,
+        telegram_user_id=user_id,
+        text="Доставка",
+        remind_at_utc=remind_at_utc,
+        now=now,
+    )
+    reminder.status = status
+    reminder.attempt_count = attempt_count
+    if next_attempt_at_utc is not None:
+        reminder.next_attempt_at_utc = next_attempt_at_utc
+    reminder.locked_at_utc = locked_at_utc
+    await session.commit()
+    return reminder
+
+
+async def test_find_due_reminders_lexicographic_iso(
+    session: AsyncSession,
+    fixed_now,
+) -> None:
+    """find_due: просроченные scheduled (next_attempt<=now); sent/cancelled мимо."""
+    await _make_user(session, telegram_user_id=42)
+
+    due_past = await _make_reminder(
+        session,
+        42,
+        remind_at_utc=fixed_now - timedelta(minutes=1),
+        now=fixed_now,
+    )
+    due_boundary = await _make_reminder(
+        session,
+        42,
+        remind_at_utc=fixed_now,
+        now=fixed_now,
+    )
+    not_due = await _make_reminder(
+        session,
+        42,
+        remind_at_utc=fixed_now + timedelta(minutes=1),
+        now=fixed_now,
+    )
+    sent = await _make_reminder(
+        session,
+        42,
+        remind_at_utc=fixed_now - timedelta(minutes=5),
+        now=fixed_now,
+        status="sent",
+    )
+    cancelled = await _make_reminder(
+        session,
+        42,
+        remind_at_utc=fixed_now - timedelta(minutes=5),
+        now=fixed_now,
+        status="cancelled",
+    )
+
+    due = await find_due_reminders(session=session, now=fixed_now)
+
+    due_ids = {r.id for r in due}
+    assert due_ids == {due_past.id, due_boundary.id}
+    assert not_due.id not in due_ids
+    assert sent.id not in due_ids
+    assert cancelled.id not in due_ids
+    # статусы не изменены выборкой
+    assert (await session.get(Reminder, due_past.id)).status == "scheduled"
+
+
+async def test_claim_for_sending_atomic_rowcount(
+    session: AsyncSession,
+    fixed_now,
+) -> None:
+    """claim: scheduled→sending (+locked_at); повторный claim той же записи → False."""
+    await _make_user(session, telegram_user_id=42)
+
+    reminder = await _make_reminder(
+        session,
+        42,
+        remind_at_utc=fixed_now - timedelta(minutes=1),
+        now=fixed_now,
+    )
+
+    first = await claim_for_sending(
+        session=session, reminder_id=reminder.id, now=fixed_now
+    )
+    assert first is True
+
+    reloaded = await session.get(Reminder, reminder.id)
+    await session.refresh(reloaded)
+    assert reloaded.status == "sending"
+    assert reloaded.locked_at_utc == fixed_now.isoformat()
+
+    # повторный claim (статус уже не scheduled) → атомарно False
+    second = await claim_for_sending(
+        session=session, reminder_id=reminder.id, now=fixed_now
+    )
+    assert second is False
+
+
+async def test_mark_sent_sets_sent_at(session: AsyncSession, fixed_now) -> None:
+    """mark_sent: status='sent', sent_at_utc=now (по id, без статус-фильтра)."""
+    await _make_user(session, telegram_user_id=42)
+
+    reminder = await _make_reminder(
+        session,
+        42,
+        remind_at_utc=fixed_now - timedelta(minutes=1),
+        now=fixed_now,
+        status="sending",
+        locked_at_utc=fixed_now.isoformat(),
+    )
+
+    result = await mark_sent(session=session, reminder_id=reminder.id, now=fixed_now)
+    assert result is None
+
+    reloaded = await session.get(Reminder, reminder.id)
+    await session.refresh(reloaded)
+    assert reloaded.status == "sent"
+    assert reloaded.sent_at_utc == fixed_now.isoformat()
+
+
+async def test_mark_failed_only_sending(session: AsyncSession, fixed_now) -> None:
+    """mark_failed: только sending→failed; из scheduled → False (без изменений)."""
+    await _make_user(session, telegram_user_id=42)
+
+    sending = await _make_reminder(
+        session,
+        42,
+        remind_at_utc=fixed_now - timedelta(minutes=1),
+        now=fixed_now,
+        status="sending",
+        locked_at_utc=fixed_now.isoformat(),
+        attempt_count=2,
+    )
+    scheduled = await _make_reminder(
+        session,
+        42,
+        remind_at_utc=fixed_now + timedelta(minutes=1),
+        now=fixed_now,
+    )
+
+    assert await mark_failed(session=session, reminder_id=sending.id) is True
+    assert await mark_failed(session=session, reminder_id=scheduled.id) is False
+
+    failed_reloaded = await session.get(Reminder, sending.id)
+    await session.refresh(failed_reloaded)
+    assert failed_reloaded.status == "failed"
+    # attempt_count не инкрементируется mark_failed
+    assert failed_reloaded.attempt_count == 2
+
+    scheduled_reloaded = await session.get(Reminder, scheduled.id)
+    await session.refresh(scheduled_reloaded)
+    assert scheduled_reloaded.status == "scheduled"
+
+
+@pytest.mark.parametrize(
+    (
+        "attempt_before",
+        "expected_status",
+        "expected_attempt",
+        "expected_delay",
+        "returns_failed",
+    ),
+    [
+        pytest.param(0, "scheduled", 1, 30, False, id="first-failure-30s"),
+        pytest.param(1, "scheduled", 2, 120, False, id="second-failure-120s"),
+        pytest.param(2, "scheduled", 3, 600, False, id="third-failure-600s"),
+        pytest.param(3, "failed", None, None, True, id="fourth-failure-failed"),
+    ],
+)
+async def test_record_send_failure_schedule(
+    session: AsyncSession,
+    fixed_now,
+    attempt_before: int,
+    expected_status: str,
+    expected_attempt,
+    expected_delay,
+    returns_failed: bool,
+) -> None:
+    """record_send_failure: 1→+30с, 2→+120с, 3→+600с; 4→failed."""
+    await _make_user(session, telegram_user_id=42)
+
+    reminder = await _make_reminder(
+        session,
+        42,
+        remind_at_utc=fixed_now + timedelta(hours=1),
+        now=fixed_now,
+        status="sending",
+        attempt_count=attempt_before,
+        locked_at_utc=fixed_now.isoformat(),
+    )
+
+    failed = await record_send_failure(
+        session=session, reminder_id=reminder.id, now=fixed_now
+    )
+
+    assert failed is returns_failed
+
+    reloaded = await session.get(Reminder, reminder.id)
+    await session.refresh(reloaded)
+    assert reloaded.status == expected_status
+    if returns_failed:
+        return
+    assert reloaded.attempt_count == expected_attempt
+    assert reloaded.locked_at_utc is None
+    assert (
+        reloaded.next_attempt_at_utc
+        == (fixed_now + timedelta(seconds=expected_delay)).isoformat()
+    )
+
+
+async def test_recover_stuck_sending_at_startup(
+    session: AsyncSession,
+    fixed_now,
+) -> None:
+    """recover: зависшее sending (locked<=now-60s)→scheduled; свежее не трогает."""
+    await _make_user(session, telegram_user_id=42)
+
+    stale_locked = (fixed_now - timedelta(seconds=90)).isoformat()
+    fresh_locked = (fixed_now - timedelta(seconds=10)).isoformat()
+
+    stuck = await _make_reminder(
+        session,
+        42,
+        remind_at_utc=fixed_now - timedelta(minutes=5),  # due (в прошлом)
+        now=fixed_now,
+        status="sending",
+        locked_at_utc=stale_locked,
+    )
+    fresh = await _make_reminder(
+        session,
+        42,
+        remind_at_utc=fixed_now + timedelta(hours=1),
+        now=fixed_now,
+        status="sending",
+        locked_at_utc=fresh_locked,
+    )
+
+    recovered = await recover_stuck_sending(session=session, now=fixed_now)
+
+    assert recovered == 1
+
+    stuck_reloaded = await session.get(Reminder, stuck.id)
+    await session.refresh(stuck_reloaded)
+    assert stuck_reloaded.status == "scheduled"
+    assert stuck_reloaded.locked_at_utc is None
+
+    fresh_reloaded = await session.get(Reminder, fresh.id)
+    await session.refresh(fresh_reloaded)
+    assert fresh_reloaded.status == "sending"  # порог 60с не достигнут — не трогаем
+    assert fresh_reloaded.locked_at_utc == fresh_locked
+
+    # восстановленная запись остаётся due и снова выбирается delivery-циклом
+    due = await find_due_reminders(session=session, now=fixed_now)
+    assert stuck.id in {r.id for r in due}
 
 
 if __name__ == "__main__":
