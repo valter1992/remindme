@@ -1,13 +1,11 @@
 """Клетка services — чистые парсеры и сценарии RemindMe.
 
-Фасадный модуль клетки будет экспонировать собственные сущности:
-детерминированный парсер напоминаний (``parse_remind_time``,
-``ParsedReminder``, ``ParseError``), сценарии напоминаний/заметок/задач
-(``create_reminder_scenario``, ``set_timezone_scenario``,
-``cancel_reminder_scenario``, ``create_note_scenario``,
-``create_todo_scenario``, ``parse_todo_input``) и типы ошибок
-(``NoteError``, ``TodoError``, ``ParsedTodo``). Наполняется в последующих
-задачах клетки; ``__all__`` пока пуст.
+Фасадный модуль клетки экспонирует собственные сущности: детерминированный
+парсер напоминаний (:func:`parse_remind_time`, :class:`ParsedReminder`,
+:class:`ParseError`); сценарии напоминаний/заметок/задач и типы ошибок
+наполняются в последующих задачах клетки.
 """
 
-__all__: list[str] = []
+from .parser import ParsedReminder, ParseError, parse_remind_time
+
+__all__ = ["ParseError", "ParsedReminder", "parse_remind_time"]

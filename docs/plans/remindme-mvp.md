@@ -503,15 +503,15 @@ DTO `ParsedReminder`/`ParseError` — pydantic `kw_only`. `now` — параме
 
 **CRITICAL: `CODEMANIFEST` files — read-only. Контракт: parser.py; DST-проверка ДО past/horizon.**
 
-- [ ] **Task declaration**: Task 11 (`services` — parse_remind_time).
-- [ ] **Contract tests** (`tests/services/test_parser.py`): фасад `from remindme.services import parse_remind_time, ParsedReminder, ParseError`; сигнатура `parse_remind_time(raw, now, timezone, default_time) -> ParsedReminder | ParseError`; `ParsedReminder.remind_at_utc/text`, `ParseError.kind`.
-- [ ] **Code**: реализовать разбор режимов (`/remind` split по первому `|`; фраза — strip «напомни [мне]» `re.IGNORECASE`), 5 шаблонов (`через N минут/часов/дней`, абсолют `ГГГГ-ММ-ДД ЧЧ:ММ`, `ДД.ММ.ГГГГ в ЧЧ:ММ` и пр. — частное→общее), `strptime` (календарная проверка → `date_not_exist`), локализация через `ZoneInfo` (fold → `nonexistent_time`/`ambiguous_time`), проверки текста (`empty_text`/`text_too_long`) и границ (`past`/`horizon_exceeded`), `invalid_format`. `ParsedReminder`/`ParseError` (pydantic kw_only).
-- [ ] **Code**: добавить имена в фасад `__init__.py`.
-- [ ] **Interface verification**: `pytest tests/services/test_parser.py -v`.
-- [ ] **Logic tests** (перенос дословно из дизайна **Test Stack Trace** и **Дополнительные параметризованные**): `test_parse_remind_time_relative_minutes`; `test_parse_remind_time_absolute_command` (split по `|`, Москва UTC+3 → 15:00 UTC); `test_parse_remind_time_past`; `test_parse_remind_time_unsupported_phrase` (`invalid_format`); `test_parse_remind_time_date_not_exist` (`31.02` → `date_not_exist`); `test_parse_remind_time_horizon_exceeded` (400 дней); `test_parse_remind_time_horizon_boundary_in_range` (ровно 365); `test_parse_remind_time_text_too_long` (501); `test_parse_remind_time_text_length_boundaries` (param 1/500/501); `test_parse_remind_time_empty_text`; `test_parse_remind_time_dst_nonexistent`; `test_parse_remind_time_ambiguous_time`; `test_parse_remind_time_unit_forms` (param единицы: минуту/час/день и формы); `test_parse_remind_time_n_boundaries` (N=1 и большое N→horizon). Для каждого — точные assertions по дизайну.
-- [ ] **Debugging**: `pytest tests/services/test_parser.py -x`.
-- [ ] **Contract re-verification**: все 8 `ParseError.kind` достижимы; DST-проверка раньше past/horizon; чистая функция (нет `datetime.now()`/БД/Telegram).
-- [ ] **Lint**: `ruff check src/remindme/services/`.
+- [x] **Task declaration**: Task 11 (`services` — parse_remind_time).
+- [x] **Contract tests** (`tests/services/test_parser.py`): фасад `from remindme.services import parse_remind_time, ParsedReminder, ParseError`; сигнатура `parse_remind_time(raw, now, timezone, default_time) -> ParsedReminder | ParseError`; `ParsedReminder.remind_at_utc/text`, `ParseError.kind`.
+- [x] **Code**: реализовать разбор режимов (`/remind` split по первому `|`; фраза — strip «напомни [мне]» `re.IGNORECASE`), 5 шаблонов (`через N минут/часов/дней`, абсолют `ГГГГ-ММ-ДД ЧЧ:ММ`, `ДД.ММ.ГГГГ в ЧЧ:ММ` и пр. — частное→общее), `strptime` (календарная проверка → `date_not_exist`), локализация через `ZoneInfo` (fold → `nonexistent_time`/`ambiguous_time`), проверки текста (`empty_text`/`text_too_long`) и границ (`past`/`horizon_exceeded`), `invalid_format`. `ParsedReminder`/`ParseError` (pydantic kw_only).
+- [x] **Code**: добавить имена в фасад `__init__.py`.
+- [x] **Interface verification**: `pytest tests/services/test_parser.py -v`.
+- [x] **Logic tests** (перенос дословно из дизайна **Test Stack Trace** и **Дополнительные параметризованные**): `test_parse_remind_time_relative_minutes`; `test_parse_remind_time_absolute_command` (split по `|`, Москва UTC+3 → 15:00 UTC); `test_parse_remind_time_past`; `test_parse_remind_time_unsupported_phrase` (`invalid_format`); `test_parse_remind_time_date_not_exist` (`31.02` → `date_not_exist`); `test_parse_remind_time_horizon_exceeded` (400 дней); `test_parse_remind_time_horizon_boundary_in_range` (ровно 365); `test_parse_remind_time_text_too_long` (501); `test_parse_remind_time_text_length_boundaries` (param 1/500/501); `test_parse_remind_time_empty_text`; `test_parse_remind_time_dst_nonexistent`; `test_parse_remind_time_ambiguous_time`; `test_parse_remind_time_unit_forms` (param единицы: минуту/час/день и формы); `test_parse_remind_time_n_boundaries` (N=1 и большое N→horizon). Для каждого — точные assertions по дизайну.
+- [x] **Debugging**: `pytest tests/services/test_parser.py -x`.
+- [x] **Contract re-verification**: все 8 `ParseError.kind` достижимы; DST-проверка раньше past/horizon; чистая функция (нет `datetime.now()`/БД/Telegram).
+- [x] **Lint**: `ruff check src/remindme/services/`.
 
 ---
 
