@@ -48,8 +48,16 @@ Annotations: |
     `parsed`: успех (UTC-момент + очищенный текст) или типизированная ошибка
 
     Algorithm:
-    1. Зафиксировать `now`; определить режим по `raw` (/remind split по первому '|'; фраза «напомни …»)
-    2. Распознать форму времени по 5 шаблонам (re.IGNORECASE, частное→общее); не распознано → ParseError(kind='invalid_format')
+    1. Зафиксировать `now`. Определить режим и подготовить строку разбора по префиксу `raw`:
+       - командный режим: `raw` начинается с «/remind» — отделить команду, разделить остаток по первому «|»;
+         левая часть — выражение времени в формате «ГГГГ-ММ-ДД ЧЧ:ММ» (ISO) либо относительное
+         («через N минут/часов/дней»); правая часть — текст. Нет «|» или левая часть не сводится
+         к поддерживаемому выражению времени → ParseError(kind='invalid_format').
+       - фразовый режим: `raw` начинается с «напомни [мне]» (re.IGNORECASE, любое число пробелов) —
+         отделить префикс, дальнейший разбор по 5 шаблонам применяется к строке БЕЗ префикса.
+       - иначе (нет ни «/remind», ни «напомни») → ParseError(kind='invalid_format').
+    2. Фразовый режим: распознать форму времени по 5 шаблонам (re.IGNORECASE, частное→общее); не распознано → ParseError(kind='invalid_format').
+       Шаблоны применяются к строке без префикса «напомни [мне]»; «|» после выражения допускается и удаляется.
     3. Календарная проверка через strptime (31.02 → date_not_exist)
     4. Построить локальный naive datetime в `timezone`; локализовать через `timezone` со сравнением fold=0/fold=1:
        попадание в весенний провал → ParseError(kind='nonexistent_time');
@@ -199,7 +207,7 @@ Annotations: |
     Use `conventions` (kw_only).
   properties:
     "kind -> str": |
-      invalid_format / empty_text / text_too_long.
+      empty_text / text_too_long.
 
 "ParsedTodo(due_at_utc: datetime | None, text: str)":
   location: todos.py
@@ -219,25 +227,29 @@ Annotations: |
 "parse_todo_input(raw: str, timezone: str) -> parsed: ParsedTodo | TodoError":
   location: todos.py
   annotations: |
-    Чистый парсер входа задачи: «ГГГГ-ММ-ДД ЧЧ:ММ | текст» → срок; иначе без срока.
+    Чистый парсер входа задачи: «ГГГГ-ММ-ДД ЧЧ:ММ | текст» → срок; иначе весь текст без срока.
 
     `raw`: исходный текст; `timezone`: IANA-зона пользователя.
 
     Algorithm:
-    1. Разделить raw по первому «|»: левая — срок, правая — текст; если «|» нет — левая пуста, текст = raw
-    2. text = (правая или raw).strip(); пусто → TodoError(empty_text)
+    1. Если в raw есть «|» И левая часть (до первого «|») точно соответствует формату «ГГГГ-ММ-ДД ЧЧ:ММ»
+       (проверка через strptime): due_raw = левая часть; raw_text = правая часть; naive local из due_raw
+       локализовать через ZoneInfo(`timezone`) → aware UTC due_at_utc.
+       Иначе (нет «|» или левая часть — не дата): due_at_utc = None; raw_text = raw (весь аргумент целиком,
+       включая возможный литерал «|»).
+    2. text = raw_text.strip(); пусто → TodoError(empty_text)
     3. len(text) > 500 → TodoError(text_too_long)
-    4. Если «|» был (срок присутствует): распарсить левую как «ГГГГ-ММ-ДД ЧЧ:ММ» (strptime);
-       неудача → TodoError(invalid_format); naive local → локализовать через ZoneInfo(`timezone`) → aware UTC due_at_utc
-    5. Иначе due_at_utc=None (задача без срока)
-    6. Вернуть ParsedTodo(due_at_utc, text)
+    4. Вернуть ParsedTodo(due_at_utc, text)
 
     Requirements:
+    - «|» считается разделителем срока ТОЛЬКО когда левая часть — валидная дата «ГГГГ-ММ-ДД ЧЧ:ММ»;
+      иначе весь аргумент становится текстом задачи без срока (по ТЗ project.md)
     - past допускается; без DST-валидации и горизонта
     - проверки empty_text/text_too_long применяются к обеим веткам (со сроком и без срока)
 
     Constraints:
     - чистая функция — без datetime.now()/БД/Telegram
+    - некорректная дата слева от «|» НЕ является ошибкой парсера — весь текст сохраняется как задача без срока
 
     Use `timezone` (ZoneInfo локализация); `conventions` (kw_only, parametrize).
 
