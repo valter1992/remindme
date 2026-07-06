@@ -439,15 +439,15 @@ async-фикстуру `session` (она используется logic-тест
 
 **CRITICAL: `CODEMANIFEST` files — read-only. Контракт: repositories.py (группа notes/todos).**
 
-- [ ] **Task declaration**: Task 8 (`db` — repositories: notes+todos).
-- [ ] **Contract tests** (`tests/db/test_repositories.py`): фасад `from remindme.db import create_note, list_notes, delete_note, create_todo, list_todos, list_completed, complete_todo, delete_todo`; сигнатуры; `delete_todo -> bool | None`.
-- [ ] **Code**: реализовать 8 сущностей: `create_note` (ISO `created_at_utc`), `list_notes` (`order_by created_at_utc desc`, `limit 20`), `delete_note` (`DELETE WHERE id AND user_id`, `rowcount==1`), `create_todo` (`status="active"`, `due_at_utc` ISO|None, past допускается), `list_todos` (`status="active"`, `order_by due_at_utc asc NULLS LAST, created_at_utc desc`, `limit 20`), `list_completed` (`status="completed"`, `order_by completed_at_utc desc`, `limit 20`), `complete_todo` (`UPDATE … WHERE id AND user_id AND status='active'`, `completed_at_utc`, `rowcount==1`), `delete_todo` (статус до удаления по `(id,user_id)`; `None`/`True`/`False`).
-- [ ] **Code**: добавить имена в фасад `__init__.py`.
-- [ ] **Interface verification**: `pytest tests/db/test_repositories.py -v -k "note or todo or completed or complete"`.
-- [ ] **Logic tests**: `test_create_note_and_list_desc`; `test_delete_note_foreign_returns_false`; `test_create_todo_active_with_and_without_due`; `test_list_todos_nulls_last` (сначала со сроком, затем без — перенос из дизайна); `test_list_completed_desc`; `test_complete_todo_active_to_completed_and_repeat_returns_false`; `test_delete_todo_was_completed_none_true_false` (parametrize: чужая→None, completed→True, active→False).
-- [ ] **Debugging**: `pytest tests/db/test_repositories.py -x -k "note or todo or completed or complete"`.
-- [ ] **Contract re-verification**: `NULLS LAST`, `status`-фильтры, изоляция, `delete_todo` возвращаемые значения по контракту.
-- [ ] **Lint**: `ruff check src/remindme/db/`.
+- [x] **Task declaration**: Task 8 (`db` — repositories: notes+todos).
+- [x] **Contract tests** (`tests/db/test_repositories.py`): фасад `from remindme.db import create_note, list_notes, delete_note, create_todo, list_todos, list_completed, complete_todo, delete_todo`; сигнатуры; `delete_todo -> bool | None`.
+- [x] **Code**: реализовать 8 сущностей: `create_note` (ISO `created_at_utc`), `list_notes` (`order_by created_at_utc desc`, `limit 20`), `delete_note` (`DELETE WHERE id AND user_id`, `rowcount==1`), `create_todo` (`status="active"`, `due_at_utc` ISO|None, past допускается), `list_todos` (`status="active"`, `order_by due_at_utc asc NULLS LAST, created_at_utc desc`, `limit 20`), `list_completed` (`status="completed"`, `order_by completed_at_utc desc`, `limit 20`), `complete_todo` (`UPDATE … WHERE id AND user_id AND status='active'`, `completed_at_utc`, `rowcount==1`), `delete_todo` (статус до удаления по `(id,user_id)`; `None`/`True`/`False`).
+- [x] **Code**: добавить имена в фасад `__init__.py`.
+- [x] **Interface verification**: `pytest tests/db/test_repositories.py -v -k "note or todo or completed or complete"`.
+- [x] **Logic tests**: `test_create_note_and_list_desc`; `test_delete_note_foreign_returns_false`; `test_create_todo_active_with_and_without_due`; `test_list_todos_nulls_last` (сначала со сроком, затем без — перенос из дизайна); `test_list_completed_desc`; `test_complete_todo_active_to_completed_and_repeat_returns_false`; `test_delete_todo_was_completed_none_true_false` (parametrize: чужая→None, completed→True, active→False).
+- [x] **Debugging**: `pytest tests/db/test_repositories.py -x -k "note or todo or completed or complete"`.
+- [x] **Contract re-verification**: `NULLS LAST`, `status`-фильтры, изоляция, `delete_todo` возвращаемые значения по контракту.
+- [x] **Lint**: `ruff check src/remindme/db/`.
 
 ---
 

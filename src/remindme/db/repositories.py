@@ -12,17 +12,25 @@ import logging
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select, update
+from sqlalchemy import delete, nullslast, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .models import Reminder, User
+from .models import Note, Reminder, Todo, User
 
 __all__ = [
     "CancelOutcome",
     "cancel_reminder",
+    "complete_todo",
+    "create_note",
     "create_reminder",
+    "create_todo",
+    "delete_note",
+    "delete_todo",
+    "list_completed",
+    "list_notes",
     "list_reminders",
+    "list_todos",
     "set_user_timezone",
 ]
 
@@ -202,3 +210,294 @@ async def set_user_timezone(
         return True
 
     return False
+
+
+async def create_note(
+    session: AsyncSession,
+    telegram_user_id: int,
+    text: str,
+    now: datetime,
+) -> Note:
+    """Создаёт заметку и фиксирует транзакцию.
+
+    Args:
+        session: открытая ``AsyncSession``.
+        telegram_user_id: владелец (FK на users.telegram_user_id).
+        text: текст заметки (валидирован сценарием ``services`` 1–500).
+        now: момент создания (aware UTC) для ``created_at_utc``.
+
+    Returns:
+        Сохранённая ``Note`` с присвоенным ``id``.
+
+    Raises:
+        SQLAlchemyError: при ошибке БД — транзакция откатывается, контекст
+            залогирован, исключение поднимается повторно.
+    """
+    note = Note(
+        user_id=telegram_user_id,
+        text=text,
+        created_at_utc=now.isoformat(),
+    )
+
+    try:
+        session.add(note)
+        await session.commit()
+    except SQLAlchemyError:
+        await session.rollback()
+        logger.error(
+            "note create failed",
+            extra={"user_id": telegram_user_id},
+        )
+        raise
+
+    return note
+
+
+async def list_notes(session: AsyncSession, user_id: int) -> list[Note]:
+    """Возвращает заметки текущего пользователя, новые сверху.
+
+    Args:
+        session: открытая ``AsyncSession``.
+        user_id: владелец.
+
+    Returns:
+        Список не более чем из 20 заметок текущего пользователя, порядок
+        ``created_at_utc desc``.
+    """
+    stmt = (
+        select(Note)
+        .where(Note.user_id == user_id)
+        .order_by(Note.created_at_utc.desc())
+        .limit(20)
+    )
+    result = await session.execute(stmt)
+
+    return list(result.scalars().all())
+
+
+async def delete_note(session: AsyncSession, note_id: int, user_id: int) -> bool:
+    """Физически удаляет заметку по ``(note_id, user_id)``.
+
+    Args:
+        session: открытая ``AsyncSession``.
+        note_id: идентификатор заметки.
+        user_id: владелец.
+
+    Returns:
+        ``True``, если удалена ровно одна запись (``rowcount == 1``); иначе
+        ``False`` (не найдено или чужая — существование чужих не раскрывается).
+
+    Raises:
+        SQLAlchemyError: при ошибке БД — откат, лог, re-raise.
+    """
+    stmt = delete(Note).where(Note.id == note_id, Note.user_id == user_id)
+
+    try:
+        result = await session.execute(stmt)
+    except SQLAlchemyError:
+        await session.rollback()
+        logger.error(
+            "note delete failed",
+            extra={"note_id": note_id, "user_id": user_id},
+        )
+        raise
+
+    if result.rowcount == 1:
+        await session.commit()
+        return True
+
+    return False
+
+
+async def create_todo(
+    session: AsyncSession,
+    telegram_user_id: int,
+    text: str,
+    due_at_utc: datetime | None,
+    now: datetime,
+) -> Todo:
+    """Создаёт задачу в статусе active (срок может быть ``None`` или в прошлом).
+
+    Args:
+        session: открытая ``AsyncSession``.
+        telegram_user_id: владелец (FK на users.telegram_user_id).
+        text: текст задачи.
+        due_at_utc: срок (aware UTC) или ``None`` — задача без срока; past
+            допускается.
+        now: момент создания (aware UTC) для ``created_at_utc``.
+
+    Returns:
+        Сохранённая ``Todo`` с присвоенным ``id`` (``status='active'``).
+
+    Raises:
+        SQLAlchemyError: при ошибке БД — откат, лог, re-raise.
+    """
+    due_iso = due_at_utc.isoformat() if due_at_utc is not None else None
+
+    todo = Todo(
+        user_id=telegram_user_id,
+        text=text,
+        due_at_utc=due_iso,
+        status="active",
+        created_at_utc=now.isoformat(),
+    )
+
+    try:
+        session.add(todo)
+        await session.commit()
+    except SQLAlchemyError:
+        await session.rollback()
+        logger.error(
+            "todo create failed",
+            extra={"user_id": telegram_user_id},
+        )
+        raise
+
+    return todo
+
+
+async def list_todos(session: AsyncSession, user_id: int) -> list[Todo]:
+    """Возвращает активные задачи: сначала со сроком (asc), затем без срока.
+
+    Args:
+        session: открытая ``AsyncSession``.
+        user_id: владелец.
+
+    Returns:
+        Список активных задач (``status='active'``): сначала со сроком
+        (``due_at_utc asc``), затем без срока (``NULLS LAST``); при равенстве —
+        по ``created_at_utc desc``; не более 20.
+    """
+    stmt = (
+        select(Todo)
+        .where(Todo.user_id == user_id, Todo.status == "active")
+        .order_by(nullslast(Todo.due_at_utc.asc()), Todo.created_at_utc.desc())
+        .limit(20)
+    )
+    result = await session.execute(stmt)
+
+    return list(result.scalars().all())
+
+
+async def list_completed(session: AsyncSession, user_id: int) -> list[Todo]:
+    """Возвращает выполненные задачи текущего пользователя, недавние сверху.
+
+    Args:
+        session: открытая ``AsyncSession``.
+        user_id: владелец.
+
+    Returns:
+        Список выполненных задач (``status='completed'``), порядок
+        ``completed_at_utc desc``, не более 20.
+    """
+    stmt = (
+        select(Todo)
+        .where(Todo.user_id == user_id, Todo.status == "completed")
+        .order_by(Todo.completed_at_utc.desc())
+        .limit(20)
+    )
+    result = await session.execute(stmt)
+
+    return list(result.scalars().all())
+
+
+async def complete_todo(
+    session: AsyncSession,
+    todo_id: int,
+    user_id: int,
+    now: datetime,
+) -> bool:
+    """Переводит задачу active→completed и проставляет ``completed_at_utc``.
+
+    Атомарный переход через ``WHERE`` по владельцу и статусу; ``rowcount == 1``
+    отличает «завершено» от «уже completed / не найдено / чужая».
+
+    Args:
+        session: открытая ``AsyncSession``.
+        todo_id: идентификатор задачи.
+        user_id: владелец.
+        now: момент завершения (aware UTC) для ``completed_at_utc``.
+
+    Returns:
+        ``True``, если завершена ровно одна active-запись (``rowcount == 1``);
+        иначе ``False`` (повторный клик по completed / не найдено / чужая —
+        существование чужих не раскрывается).
+
+    Raises:
+        SQLAlchemyError: при ошибке БД — откат, лог, re-raise.
+    """
+    stmt = (
+        update(Todo)
+        .where(
+            Todo.id == todo_id,
+            Todo.user_id == user_id,
+            Todo.status == "active",
+        )
+        .values(status="completed", completed_at_utc=now.isoformat())
+    )
+
+    try:
+        result = await session.execute(stmt)
+    except SQLAlchemyError:
+        await session.rollback()
+        logger.error(
+            "todo complete failed",
+            extra={"todo_id": todo_id, "user_id": user_id},
+        )
+        raise
+
+    if result.rowcount == 1:
+        await session.commit()
+        return True
+
+    return False
+
+
+async def delete_todo(
+    session: AsyncSession,
+    todo_id: int,
+    user_id: int,
+) -> bool | None:
+    """Удаляет задачу по ``(todo_id, user_id)``, возвращая статус до удаления.
+
+    Возвращённый статус управляет целевой перерисовкой списка в callback-роутере:
+    ``True`` → ``/completed``, ``False`` → ``/todos``, ``None`` → запись уже
+    изменена или удалена.
+
+    Args:
+        session: открытая ``AsyncSession``.
+        todo_id: идентификатор задачи.
+        user_id: владелец.
+
+    Returns:
+        ``None`` — не найдено или чужая (существование чужих не раскрывается);
+        ``True`` — удалена и была ``completed``; ``False`` — удалена и была
+        ``active``.
+
+    Raises:
+        SQLAlchemyError: при ошибке БД — откат, лог, re-raise.
+    """
+    status_stmt = select(Todo.status).where(
+        Todo.id == todo_id,
+        Todo.user_id == user_id,
+    )
+    status_result = await session.execute(status_stmt)
+    status = status_result.scalar_one_or_none()
+
+    if status is None:
+        return None
+
+    del_stmt = delete(Todo).where(Todo.id == todo_id, Todo.user_id == user_id)
+
+    try:
+        await session.execute(del_stmt)
+        await session.commit()
+    except SQLAlchemyError:
+        await session.rollback()
+        logger.error(
+            "todo delete failed",
+            extra={"todo_id": todo_id, "user_id": user_id},
+        )
+        raise
+
+    return status == "completed"

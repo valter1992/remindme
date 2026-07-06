@@ -15,11 +15,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from remindme.db import (
     CancelOutcome,
+    Note,
     Reminder,
+    Todo,
     User,
     cancel_reminder,
+    complete_todo,
+    create_note,
     create_reminder,
+    create_todo,
+    delete_note,
+    delete_todo,
+    list_completed,
+    list_notes,
     list_reminders,
+    list_todos,
     set_user_timezone,
 )
 
@@ -329,6 +339,404 @@ async def test_set_user_timezone_rowcount(session: AsyncSession, fixed_now) -> N
         )
         is False
     )
+
+
+# --- Контракт-тесты: notes/todos (Task 8) ---
+
+
+def test_facade_exports_note_todo_repositories() -> None:
+    """Фасад экспортирует восемь сущностей группы notes+todos."""
+    assert callable(create_note)
+    assert callable(list_notes)
+    assert callable(delete_note)
+    assert callable(create_todo)
+    assert callable(list_todos)
+    assert callable(list_completed)
+    assert callable(complete_todo)
+    assert callable(delete_todo)
+
+
+def test_create_note_signature() -> None:
+    """``create_note(session, telegram_user_id, text, now)``."""
+    params = create_note.__code__.co_varnames[: create_note.__code__.co_argcount]
+    assert params == ("session", "telegram_user_id", "text", "now")
+
+
+def test_list_notes_signature() -> None:
+    """``list_notes(session, user_id)``."""
+    params = list_notes.__code__.co_varnames[: list_notes.__code__.co_argcount]
+    assert params == ("session", "user_id")
+
+
+def test_delete_note_signature() -> None:
+    """``delete_note(session, note_id, user_id)``."""
+    params = delete_note.__code__.co_varnames[: delete_note.__code__.co_argcount]
+    assert params == ("session", "note_id", "user_id")
+
+
+def test_create_todo_signature() -> None:
+    """``create_todo(session, telegram_user_id, text, due_at_utc, now)``."""
+    params = create_todo.__code__.co_varnames[: create_todo.__code__.co_argcount]
+    assert params == (
+        "session",
+        "telegram_user_id",
+        "text",
+        "due_at_utc",
+        "now",
+    )
+
+
+def test_list_todos_signature() -> None:
+    """``list_todos(session, user_id)``."""
+    params = list_todos.__code__.co_varnames[: list_todos.__code__.co_argcount]
+    assert params == ("session", "user_id")
+
+
+def test_list_completed_signature() -> None:
+    """``list_completed(session, user_id)``."""
+    params = list_completed.__code__.co_varnames[: list_completed.__code__.co_argcount]
+    assert params == ("session", "user_id")
+
+
+def test_complete_todo_signature() -> None:
+    """``complete_todo(session, todo_id, user_id, now)``."""
+    params = complete_todo.__code__.co_varnames[: complete_todo.__code__.co_argcount]
+    assert params == ("session", "todo_id", "user_id", "now")
+
+
+def test_delete_todo_signature() -> None:
+    """``delete_todo(session, todo_id, user_id) -> bool | None``."""
+    params = delete_todo.__code__.co_varnames[: delete_todo.__code__.co_argcount]
+    assert params == ("session", "todo_id", "user_id")
+
+
+# --- Logic-тесты: notes/todos ---
+
+
+async def test_create_note_and_list_desc(session: AsyncSession, fixed_now) -> None:
+    """create_note + list_notes: заметки возвращаются новые сверху (desc)."""
+    await _make_user(session, telegram_user_id=42)
+
+    first = await create_note(
+        session=session, telegram_user_id=42, text="Первая", now=fixed_now
+    )
+    second = await create_note(
+        session=session,
+        telegram_user_id=42,
+        text="Вторая",
+        now=fixed_now + timedelta(minutes=1),
+    )
+
+    notes = await list_notes(session=session, user_id=42)
+
+    assert [n.id for n in notes] == [second.id, first.id]
+
+
+async def test_list_notes_isolates_by_user(session: AsyncSession, fixed_now) -> None:
+    """list_notes возвращает только заметки текущего пользователя."""
+    await _make_user(session, telegram_user_id=42)
+    await _make_user(session, telegram_user_id=43)
+
+    await create_note(session=session, telegram_user_id=42, text="42", now=fixed_now)
+    await create_note(session=session, telegram_user_id=43, text="43", now=fixed_now)
+
+    notes = await list_notes(session=session, user_id=42)
+
+    assert len(notes) == 1
+    assert notes[0].text == "42"
+
+
+async def test_delete_note_foreign_returns_false(
+    session: AsyncSession, fixed_now
+) -> None:
+    """delete_note: чужая запись → False (изоляция владельца); своя → True."""
+    await _make_user(session, telegram_user_id=42)
+
+    note = await create_note(
+        session=session, telegram_user_id=42, text="Заметка", now=fixed_now
+    )
+
+    assert await delete_note(session=session, note_id=note.id, user_id=999) is False
+    assert await delete_note(session=session, note_id=note.id, user_id=42) is True
+    assert await session.get(Note, note.id) is None
+
+    # несуществующая запись → False
+    assert await delete_note(session=session, note_id=12345, user_id=42) is False
+
+
+async def test_create_todo_active_with_and_without_due(
+    session: AsyncSession, fixed_now
+) -> None:
+    """create_todo: status='active'; due ISO | None; past допускается."""
+    await _make_user(session, telegram_user_id=42)
+
+    due = fixed_now - timedelta(days=1)  # past допускается по контракту
+    with_due = await create_todo(
+        session=session,
+        telegram_user_id=42,
+        text="Со сроком в прошлом",
+        due_at_utc=due,
+        now=fixed_now,
+    )
+    without_due = await create_todo(
+        session=session,
+        telegram_user_id=42,
+        text="Без срока",
+        due_at_utc=None,
+        now=fixed_now,
+    )
+
+    assert with_due.id is not None
+    assert with_due.user_id == 42
+    assert with_due.status == "active"
+    assert with_due.due_at_utc == due.isoformat()
+    assert with_due.completed_at_utc is None
+    assert with_due.created_at_utc == fixed_now.isoformat()
+
+    assert without_due.status == "active"
+    assert without_due.due_at_utc is None
+    assert without_due.completed_at_utc is None
+
+
+async def test_list_todos_nulls_last(session: AsyncSession, fixed_now) -> None:
+    """list_todos: сначала со сроком (asc), затем без срока (NULLS LAST)."""
+    await _make_user(session, telegram_user_id=42)
+
+    # без срока — создаётся раньше остальных, чтобы убедиться, что не всплывает наверх
+    no_due_first = await create_todo(
+        session=session,
+        telegram_user_id=42,
+        text="Без срока (раньше)",
+        due_at_utc=None,
+        now=fixed_now,
+    )
+    later = await create_todo(
+        session=session,
+        telegram_user_id=42,
+        text="Срок позже",
+        due_at_utc=fixed_now + timedelta(hours=10),
+        now=fixed_now,
+    )
+    sooner = await create_todo(
+        session=session,
+        telegram_user_id=42,
+        text="Срок раньше",
+        due_at_utc=fixed_now + timedelta(hours=2),
+        now=fixed_now,
+    )
+    # ещё один без срока, созданный позже — при равенстве срока (NULL) порядок по
+    # created_at_utc desc: «позже» перед «раньше»
+    no_due_second = await create_todo(
+        session=session,
+        telegram_user_id=42,
+        text="Без срока (позже)",
+        due_at_utc=None,
+        now=fixed_now + timedelta(minutes=1),
+    )
+
+    todos = await list_todos(session=session, user_id=42)
+
+    assert len(todos) == 4
+    # со сроком asc идут первыми
+    assert todos[0].id == sooner.id
+    assert todos[1].id == later.id
+    # затем без срока (NULLS LAST), внутри — created_at_utc desc
+    assert todos[2].id == no_due_second.id
+    assert todos[3].id == no_due_first.id
+
+
+async def test_list_todos_isolates_by_user(session: AsyncSession, fixed_now) -> None:
+    """list_todos возвращает только активные задачи текущего пользователя."""
+    await _make_user(session, telegram_user_id=42)
+    await _make_user(session, telegram_user_id=43)
+
+    await create_todo(
+        session=session,
+        telegram_user_id=42,
+        text="42",
+        due_at_utc=None,
+        now=fixed_now,
+    )
+    await create_todo(
+        session=session,
+        telegram_user_id=43,
+        text="43",
+        due_at_utc=None,
+        now=fixed_now,
+    )
+
+    todos = await list_todos(session=session, user_id=42)
+
+    assert len(todos) == 1
+    assert todos[0].text == "42"
+
+
+async def test_list_todos_excludes_completed(session: AsyncSession, fixed_now) -> None:
+    """list_todos не возвращает completed-задачи."""
+    await _make_user(session, telegram_user_id=42)
+
+    active = await create_todo(
+        session=session,
+        telegram_user_id=42,
+        text="Активная",
+        due_at_utc=None,
+        now=fixed_now,
+    )
+    done = await create_todo(
+        session=session,
+        telegram_user_id=42,
+        text="Готовая",
+        due_at_utc=None,
+        now=fixed_now,
+    )
+    done.status = "completed"
+    done.completed_at_utc = fixed_now.isoformat()
+    await session.commit()
+
+    todos = await list_todos(session=session, user_id=42)
+
+    assert {t.id for t in todos} == {active.id}
+
+
+async def test_list_completed_desc(session: AsyncSession, fixed_now) -> None:
+    """list_completed: status='completed', order completed_at_utc desc."""
+    await _make_user(session, telegram_user_id=42)
+
+    t1 = await create_todo(
+        session=session,
+        telegram_user_id=42,
+        text="1",
+        due_at_utc=None,
+        now=fixed_now,
+    )
+    t2 = await create_todo(
+        session=session,
+        telegram_user_id=42,
+        text="2",
+        due_at_utc=None,
+        now=fixed_now,
+    )
+
+    await complete_todo(
+        session=session,
+        todo_id=t1.id,
+        user_id=42,
+        now=fixed_now + timedelta(minutes=1),
+    )
+    await complete_todo(
+        session=session,
+        todo_id=t2.id,
+        user_id=42,
+        now=fixed_now + timedelta(minutes=2),
+    )
+
+    completed = await list_completed(session=session, user_id=42)
+
+    assert [t.id for t in completed] == [t2.id, t1.id]
+    assert all(t.status == "completed" for t in completed)
+    assert all(t.completed_at_utc is not None for t in completed)
+
+
+async def test_complete_todo_active_to_completed_and_repeat_returns_false(
+    session: AsyncSession,
+    fixed_now,
+) -> None:
+    """complete_todo: active→completed (+completed_at); повтор → False."""
+    await _make_user(session, telegram_user_id=42)
+
+    todo = await create_todo(
+        session=session,
+        telegram_user_id=42,
+        text="Сделать",
+        due_at_utc=None,
+        now=fixed_now,
+    )
+
+    first = await complete_todo(
+        session=session, todo_id=todo.id, user_id=42, now=fixed_now
+    )
+    assert first is True
+
+    # Bulk-UPDATE синхронизирует identity-map не по всем колонкам — перечитываем
+    # запись из БД, чтобы проверить записанные значения.
+    reloaded = await session.get(Todo, todo.id)
+    assert reloaded is not None
+    await session.refresh(reloaded)
+    assert reloaded.status == "completed"
+    assert reloaded.completed_at_utc == fixed_now.isoformat()
+
+    # повторный клик по уже completed → False (rowcount == 0)
+    second = await complete_todo(
+        session=session, todo_id=todo.id, user_id=42, now=fixed_now
+    )
+    assert second is False
+
+
+async def test_complete_todo_foreign_returns_false(
+    session: AsyncSession, fixed_now
+) -> None:
+    """complete_todo: чужая запись → False (изоляция владельца)."""
+    await _make_user(session, telegram_user_id=42)
+
+    todo = await create_todo(
+        session=session,
+        telegram_user_id=42,
+        text="Чужая",
+        due_at_utc=None,
+        now=fixed_now,
+    )
+
+    assert (
+        await complete_todo(
+            session=session, todo_id=todo.id, user_id=999, now=fixed_now
+        )
+        is False
+    )
+    reloaded = await session.get(Todo, todo.id)
+    assert reloaded is not None
+    assert reloaded.status == "active"
+
+
+@pytest.mark.parametrize(
+    ("owner", "status_before", "expected", "row_left_after"),
+    [
+        pytest.param(42, "active", False, False, id="own-active"),
+        pytest.param(42, "completed", True, False, id="own-completed"),
+        pytest.param(999, "active", None, True, id="foreign"),
+    ],
+)
+async def test_delete_todo_was_completed_none_true_false(
+    session: AsyncSession,
+    fixed_now,
+    owner: int,
+    status_before: str,
+    expected,
+    row_left_after: bool,
+) -> None:
+    """delete_todo: чужая→None, completed→True, active→False (статус до удаления)."""
+    await _make_user(session, telegram_user_id=42)
+
+    todo = await create_todo(
+        session=session,
+        telegram_user_id=42,
+        text="Задача",
+        due_at_utc=None,
+        now=fixed_now,
+    )
+    if status_before == "completed":
+        todo.status = "completed"
+        todo.completed_at_utc = fixed_now.isoformat()
+        await session.commit()
+
+    result = await delete_todo(session=session, todo_id=todo.id, user_id=owner)
+
+    assert result is expected
+
+    reloaded = await session.get(Todo, todo.id)
+    if row_left_after:
+        assert reloaded is not None  # чужая запись осталась нетронутой
+    else:
+        assert reloaded is None  # своя запись удалена
 
 
 if __name__ == "__main__":
