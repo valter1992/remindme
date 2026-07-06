@@ -708,15 +708,15 @@ DTO `ParsedReminder`/`ParseError` — pydantic `kw_only`. `now` — параме
 
 **CRITICAL: `CODEMANIFEST` files — read-only. Контракт: handlers.py (phase3/4+errors); откат делает репозиторий, не errors-handler.**
 
-- [ ] **Task declaration**: Task 20 (`bot` — phase3/4 commands + handle_db_error).
-- [ ] **Contract tests** (`tests/bot/test_handlers.py`): фасад `from remindme.bot import cmd_timezone, cmd_cancel, cmd_note, cmd_notes, cmd_todo, cmd_todos, cmd_completed, handle_db_error`; `handle_db_error(event: ErrorEvent)`.
-- [ ] **Code**: `cmd_timezone` (аргумент зоны; пуст→подсказка; `set_timezone_scenario`→текст), `cmd_cancel` (id из аргумента; нечисловой→подсказка; `cancel_reminder_scenario`→`format_cancel_outcome`), `cmd_note`/`cmd_notes` (note-сценарий/список+клавиатура), `cmd_todo`/`cmd_todos`/`cmd_completed` (todo-сценарий/списки+клавиатуры); `handle_db_error` (извлечь исключение; не `SQLAlchemyError`→пропустить; лог ERROR без токена/текста; единый ответ).
-- [ ] **Code**: добавить имена в фасад.
-- [ ] **Interface verification**: `pytest tests/bot/test_handlers.py -v -k "timezone or cancel or note or todo or completed or db_error"`.
-- [ ] **Logic tests**: `test_cmd_timezone_ok_and_unknown`; `test_cmd_cancel_outcomes`; `test_cmd_note_success_and_error`; `test_cmd_notes_list_and_keyboard`; `test_cmd_todo_success_and_error`; `test_cmd_todos_nulls_last`; `test_cmd_completed_list`; `test_handle_db_error_sqlalchemy_answers_unified_text`; `test_handle_db_error_non_sqlalchemy_passthrough`; `test_handle_db_error_no_token_in_log`.
-- [ ] **Debugging**: `pytest tests/bot/test_handlers.py -x -k "timezone or cancel or note or todo or completed or db_error"`.
-- [ ] **Contract re-verification**: только `SQLAlchemyError`, без токена/текста в логах, единый текст.
-- [ ] **Lint**: `ruff check src/remindme/bot/`.
+- [x] **Task declaration**: Task 20 (`bot` — phase3/4 commands + handle_db_error).
+- [x] **Contract tests** (`tests/bot/test_handlers.py`): фасад `from remindme.bot import cmd_timezone, cmd_cancel, cmd_note, cmd_notes, cmd_todo, cmd_todos, cmd_completed, handle_db_error`; `handle_db_error(event: ErrorEvent)`.
+- [x] **Code**: `cmd_timezone` (аргумент зоны; пуст→подсказка; `set_timezone_scenario`→текст), `cmd_cancel` (id из аргумента; нечисловой→подсказка; `cancel_reminder_scenario`→`format_cancel_outcome`), `cmd_note`/`cmd_notes` (note-сценарий/список+клавиатура), `cmd_todo`/`cmd_todos`/`cmd_completed` (todo-сценарий/списки+клавиатуры); `handle_db_error` (извлечь исключение; не `SQLAlchemyError`→пропустить; лог ERROR без токена/текста; единый ответ).
+- [x] **Code**: добавить имена в фасад.
+- [x] **Interface verification**: `pytest tests/bot/test_handlers.py -v -k "timezone or cancel or note or todo or completed or db_error"`.
+- [x] **Logic tests**: `test_cmd_timezone_ok_and_unknown`; `test_cmd_cancel_outcomes`; `test_cmd_note_success_and_error`; `test_cmd_notes_list_and_keyboard`; `test_cmd_todo_success_and_error`; `test_cmd_todos_nulls_last`; `test_cmd_completed_list`; `test_handle_db_error_sqlalchemy_answers_unified_text`; `test_handle_db_error_non_sqlalchemy_passthrough`; `test_handle_db_error_no_token_in_log`.
+- [x] **Debugging**: `pytest tests/bot/test_handlers.py -x -k "timezone or cancel or note or todo or completed or db_error"`.
+- [x] **Contract re-verification**: только `SQLAlchemyError`, без токена/текста в логах, единый текст.
+- [x] **Lint**: `ruff check src/remindme/bot/`.
 
 ---
 

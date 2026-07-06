@@ -12,29 +12,45 @@
 """
 
 import inspect
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from aiogram.filters import BaseFilter
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from remindme import bot as bot_facade
 from remindme.bot import (
     PrivateOnly,
+    cmd_cancel,
+    cmd_completed,
     cmd_help,
+    cmd_note,
+    cmd_notes,
     cmd_remind,
     cmd_reminders,
     cmd_start,
+    cmd_timezone,
+    cmd_todo,
+    cmd_todos,
     ensure_user,
+    handle_db_error,
     handle_group,
     handle_remind_phrase,
     handle_text,
     handle_unknown_command,
 )
-from remindme.db import Reminder, User
+from remindme.db import (
+    Note,
+    Reminder,
+    Todo,
+    User,
+    claim_for_sending,
+    complete_todo,
+    create_reminder,
+)
 
 _MOSCOW = "Europe/Moscow"
 
@@ -49,6 +65,17 @@ _EXPECTED = {
 }
 
 _REMIND_EXPECTED = {"cmd_remind", "cmd_reminders", "handle_remind_phrase"}
+
+_PHASE3_EXPECTED = {
+    "cmd_timezone",
+    "cmd_cancel",
+    "cmd_note",
+    "cmd_notes",
+    "cmd_todo",
+    "cmd_todos",
+    "cmd_completed",
+    "handle_db_error",
+}
 
 
 # --- Контракт-тесты: форма фасада и API ---
@@ -404,3 +431,341 @@ async def test_cmd_reminders_empty_answers_no_keyboard(session_factory):  # noqa
     answered = message.answer.await_args.args[0]
     assert "Нет напоминаний" in answered
     assert message.answer.await_args.kwargs.get("reply_markup") is None
+
+
+# ===========================================================================
+# Task 20: phase 3/4 commands + handle_db_error
+# ===========================================================================
+
+
+# --- Контракт-тесты: форма фасада и API этапа 3/4 ---
+
+
+def test_facade_exports_phase3_handlers() -> None:
+    """Фасад экспортирует 7 обработчиков этапа 3/4 через ``__all__``."""
+    assert _PHASE3_EXPECTED.issubset(set(bot_facade.__all__))
+    for name in _PHASE3_EXPECTED:
+        assert getattr(bot_facade, name) is not None
+
+
+@pytest.mark.parametrize(
+    "fn",
+    [cmd_timezone, cmd_cancel, cmd_note, cmd_notes, cmd_todo, cmd_todos, cmd_completed],
+)
+def test_phase3_handler_is_coroutine_taking_message(fn) -> None:
+    """Командные обработчики этапа 3/4 — async-функции, принимающие ``message``."""
+    assert inspect.iscoroutinefunction(fn)
+    code = fn.__code__
+    assert code.co_varnames[: code.co_argcount] == ("message",)
+
+
+def test_handle_db_error_signature() -> None:
+    """``handle_db_error(event: ErrorEvent)`` принимает один аргумент ``event``."""
+    assert inspect.iscoroutinefunction(handle_db_error)
+    code = handle_db_error.__code__
+    assert code.co_varnames[: code.co_argcount] == ("event",)
+
+
+# --- Logic-тесты: смена часового пояса ---
+
+
+async def test_cmd_timezone_ok_and_unknown(session, session_factory):  # noqa: ANN001
+    """``/timezone Europe/Moscow`` обновляет зону; неизвестная IANA — отказ."""
+    ok = _private_message("/timezone Europe/Kirov")
+    await cmd_timezone(ok)
+
+    assert ok.answer.await_count == 1
+    assert "изменён" in ok.answer.await_args.args[0]
+    assert "Europe/Kirov" in ok.answer.await_args.args[0]
+    user = (
+        await session.execute(select(User).where(User.telegram_user_id == 123))
+    ).scalar_one()
+    assert user.timezone == "Europe/Kirov"
+
+    bad = _private_message("/timezone Not/AZone")
+    await cmd_timezone(bad)
+    assert "Неизвестный пояс" in bad.answer.await_args.args[0]
+
+
+async def test_cmd_timezone_empty_answers_hint(session_factory):  # noqa: ANN001
+    """``/timezone`` без аргумента → подсказка формата (без обращения к сценариям)."""
+    message = _private_message("/timezone")
+    await cmd_timezone(message)
+
+    assert message.answer.await_count == 1
+    assert "IANA" in message.answer.await_args.args[0]
+
+
+# --- Logic-тесты: отмена напоминания (три исхода) ---
+
+
+async def test_cmd_cancel_outcomes(session, fixed_now, session_factory):  # noqa: ANN001
+    """``/cancel`` различает ``cancelled``, ``already_sending`` и ``not_found``."""
+    await ensure_user(
+        session=session,
+        telegram_user_id=123,
+        timezone=_MOSCOW,
+        now=fixed_now,
+    )
+    due = fixed_now + timedelta(hours=1)
+    scheduled = await create_reminder(
+        session=session,
+        telegram_user_id=123,
+        text="Сработает",
+        remind_at_utc=due,
+        now=fixed_now,
+    )
+    sending = await create_reminder(
+        session=session,
+        telegram_user_id=123,
+        text="Уходит",
+        remind_at_utc=due,
+        now=fixed_now,
+    )
+    await claim_for_sending(
+        session=session,
+        reminder_id=sending.id,
+        now=fixed_now,
+    )
+
+    cancelled_msg = _private_message(f"/cancel {scheduled.id}")
+    await cmd_cancel(cancelled_msg)
+    assert "отменено" in cancelled_msg.answer.await_args.args[0].lower()
+    # в БД статус перешёл в cancelled
+    cancelled_db = (
+        await session.execute(select(Reminder).where(Reminder.id == scheduled.id))
+    ).scalar_one()
+    assert cancelled_db.status == "cancelled"
+
+    sending_msg = _private_message(f"/cancel {sending.id}")
+    await cmd_cancel(sending_msg)
+    assert "отправляется" in sending_msg.answer.await_args.args[0]
+
+    not_found_msg = _private_message("/cancel 999999")
+    await cmd_cancel(not_found_msg)
+    assert "не найдено" in not_found_msg.answer.await_args.args[0].lower()
+
+
+async def test_cmd_cancel_non_numeric_answers_hint(session_factory):  # noqa: ANN001
+    """Нечисловой id → подсказка, без обращения к сценарию."""
+    message = _private_message("/cancel abc")
+    await cmd_cancel(message)
+
+    assert message.answer.await_count == 1
+    assert "id" in message.answer.await_args.args[0]
+
+
+# --- Logic-тесты: заметки ---
+
+
+async def test_cmd_note_success_and_error(session, session_factory):  # noqa: ANN001
+    """``/note`` создаёт заметку; пустой текст → ошибка валидации без сохранения."""
+    ok = _private_message("/note Купить молоко")
+    await cmd_note(ok)
+    assert ok.answer.await_count == 1
+    assert "Заметка создана" in ok.answer.await_args.args[0]
+    assert "Купить молоко" in ok.answer.await_args.args[0]
+    notes = (
+        (await session.execute(select(Note).where(Note.user_id == 123))).scalars().all()
+    )
+    assert len(notes) == 1
+    assert notes[0].text == "Купить молоко"
+
+    empty = _private_message("/note    ")
+    await cmd_note(empty)
+    assert "пуст" in empty.answer.await_args.args[0]
+    notes_after = (
+        (await session.execute(select(Note).where(Note.user_id == 123))).scalars().all()
+    )
+    assert len(notes_after) == 1  # вторая запись не создана
+
+
+async def test_cmd_notes_list_and_keyboard(session_factory):  # noqa: ANN001
+    """``/notes`` отвечает списком и прикрепляет клавиатуру удаления."""
+    create = _private_message("/note Первая заметка")
+    await cmd_note(create)
+
+    message = _private_message("/notes")
+    await cmd_notes(message)
+
+    assert message.answer.await_count == 1
+    answered = message.answer.await_args.args[0]
+    assert "Первая заметка" in answered
+
+    reply_markup = message.answer.await_args.kwargs.get("reply_markup")
+    assert reply_markup is not None
+    rows = reply_markup.inline_keyboard
+    assert len(rows) == 1
+    assert rows[0][0].callback_data.startswith("delete:note:")
+
+
+async def test_cmd_notes_empty_answers_no_keyboard(session_factory):  # noqa: ANN001
+    """``/notes`` без заметок отвечает текстом без клавиатуры."""
+    message = _private_message("/notes")
+    await cmd_notes(message)
+
+    assert message.answer.await_count == 1
+    assert "Нет заметок" in message.answer.await_args.args[0]
+    assert message.answer.await_args.kwargs.get("reply_markup") is None
+
+
+# --- Logic-тесты: задачи ---
+
+
+async def test_cmd_todo_success_and_error(session, session_factory):  # noqa: ANN001
+    """``/todo`` создаёт задачу со сроком и без; пустой текст → ошибка валидации."""
+    with_due = _private_message("/todo 2026-06-25 09:00 | Полить цветы")
+    await cmd_todo(with_due)
+    assert with_due.answer.await_count == 1
+    assert "Задача создана" in with_due.answer.await_args.args[0]
+    assert "Полить цветы" in with_due.answer.await_args.args[0]
+    todos = (
+        (await session.execute(select(Todo).where(Todo.user_id == 123))).scalars().all()
+    )
+    assert len(todos) == 1
+    assert todos[0].due_at_utc is not None
+
+    without_due = _private_message("/todo Просто задача")
+    await cmd_todo(without_due)
+    assert "без срока" in without_due.answer.await_args.args[0]
+
+    empty = _private_message("/todo   ")
+    await cmd_todo(empty)
+    assert "пуст" in empty.answer.await_args.args[0]
+    todos_after = (
+        (await session.execute(select(Todo).where(Todo.user_id == 123))).scalars().all()
+    )
+    assert len(todos_after) == 2  # ошибочная запись не создана
+
+
+async def test_cmd_todos_nulls_last(session_factory):  # noqa: ANN001
+    """``/todos`` выводит задачи со сроком раньше задач без срока (NULLS LAST)."""
+    # Сначала создаём задачу без срока, затем со сроком — порядок вывода
+    # должен остаться «со сроком, затем без срока» (NULLS LAST в репозитории).
+    await cmd_todo(_private_message("/todo Без срока задача"))
+    await cmd_todo(_private_message("/todo 2026-06-25 09:00 | Со сроком задача"))
+
+    message = _private_message("/todos")
+    await cmd_todos(message)
+
+    assert message.answer.await_count == 1
+    answered = message.answer.await_args.args[0]
+    assert answered.index("Со сроком задача") < answered.index("Без срока задача")
+
+    reply_markup = message.answer.await_args.kwargs.get("reply_markup")
+    assert reply_markup is not None
+    rows = reply_markup.inline_keyboard
+    # У активной задачи ряд из двух кнопок: complete + delete.
+    assert len(rows[0]) == 2
+    actions = {btn.callback_data.split(":")[0] for btn in rows[0]}
+    assert actions == {"complete", "delete"}
+
+
+# --- Logic-тесты: выполненные задачи ---
+
+
+async def test_cmd_completed_list(session, session_factory):  # noqa: ANN001
+    """``/completed`` выводит выполненные задачи с клавиатурой удаления."""
+    await cmd_todo(_private_message("/todo Готовая задача"))
+    todos = (
+        (await session.execute(select(Todo).where(Todo.user_id == 123))).scalars().all()
+    )
+    todo_id = todos[0].id
+    # Переводим задачу в completed через callback-ветку репозитория.
+    await complete_todo(
+        session=session,
+        todo_id=todo_id,
+        user_id=123,
+        now=datetime.now(UTC),
+    )
+
+    message = _private_message("/completed")
+    await cmd_completed(message)
+
+    assert message.answer.await_count == 1
+    answered = message.answer.await_args.args[0]
+    assert "Готовая задача" in answered
+
+    reply_markup = message.answer.await_args.kwargs.get("reply_markup")
+    assert reply_markup is not None
+    rows = reply_markup.inline_keyboard
+    assert rows[0][0].callback_data.startswith("delete:todo:")
+
+
+async def test_cmd_completed_empty_answers_no_keyboard(session_factory):  # noqa: ANN001
+    """``/completed`` без выполненных задач отвечает без клавиатуры."""
+    message = _private_message("/completed")
+    await cmd_completed(message)
+
+    assert message.answer.await_count == 1
+    assert "Нет выполненных" in message.answer.await_args.args[0]
+    assert message.answer.await_args.kwargs.get("reply_markup") is None
+
+
+# --- Logic-тесты: централизованный errors-handler ---
+
+
+def _error_event(exception: BaseException, *, text: str = "текст") -> SimpleNamespace:
+    """Собирает mock ``ErrorEvent`` с приватным сообщением, содержащим секрет.
+
+    Args:
+        exception: перехваченное исключение (``event.exception``).
+        text: текст пользовательского сообщения (содержит «секрет» для проверки
+            отсутствия утечки в лог).
+
+    Returns:
+        ``SimpleNamespace`` с атрибутами ``exception`` и ``update``.
+    """
+    message = AsyncMock()
+    message.from_user = SimpleNamespace(id=123)
+    message.text = text
+    message.answer = AsyncMock()
+    return SimpleNamespace(
+        exception=exception,
+        update=SimpleNamespace(message=message, callback_query=None),
+    )
+
+
+async def test_handle_db_error_sqlalchemy_answers_unified_text() -> None:
+    """``SQLAlchemyError`` → единый текст-ответ пользователю."""
+    event = _error_event(SQLAlchemyError("INSERT INTO reminders ..."))
+    await handle_db_error(event)
+
+    message = event.update.message
+    assert message.answer.await_count == 1
+    answered = message.answer.await_args.args[0]
+    assert "Не удалось выполнить действие" in answered
+
+
+async def test_handle_db_error_non_sqlalchemy_passthrough() -> None:
+    """Иное исключение пропускается: ответ не отправляется."""
+    event = _error_event(ValueError("не БД"))
+    result = await handle_db_error(event)
+
+    assert result is None
+    assert event.update.message.answer.await_count == 0
+
+
+async def test_handle_db_error_no_token_in_log(caplog) -> None:  # noqa: ANN001
+    """Лог errors-handler не содержит токена и текста записи/сообщения.
+
+    В исключение и текст пользовательского сообщения встроен «секрет» — он не
+    должен попасть в лог: логируется только user_id и имя класса исключения.
+    """
+    secret = "SUPERSECRET-TOKEN-VALUE"
+    event = _error_event(
+        SQLAlchemyError(f"UPDATE ... text='{secret}'"),
+        text=secret,
+    )
+
+    with caplog.at_level("ERROR", logger="remindme.bot.handlers"):
+        await handle_db_error(event)
+
+    logged = " ".join(rec.getMessage() for rec in caplog.records)
+    assert secret not in logged
+    for rec in caplog.records:
+        assert secret not in str(rec.__dict__)
+    # user_id и код ошибки всё же присутствуют (как extra), без текста записи.
+    rec = caplog.records[-1]
+    assert rec.__dict__.get("user_id") == 123
+    assert rec.__dict__.get("error_code") == "SQLAlchemyError"
