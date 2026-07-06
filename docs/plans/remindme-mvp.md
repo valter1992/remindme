@@ -636,15 +636,15 @@ DTO `ParsedReminder`/`ParseError` — pydantic `kw_only`. `now` — параме
 
 **CRITICAL: `CODEMANIFEST` files — read-only. Контракт: keyboards.py.**
 
-- [ ] **Task declaration**: Task 17 (`bot` — keyboards).
-- [ ] **Contract tests** (`tests/bot/test_keyboards.py`): фасад `from remindme.bot import notes_keyboard, todos_keyboard, completed_keyboard, reminders_keyboard`; сигнатуры `(...) -> InlineKeyboardMarkup | None`.
-- [ ] **Code**: 4 билдера (`notes_keyboard`→`delete:note:{id}`; `todos_keyboard`→`complete:todo:{id}`+`delete:todo:{id}`; `completed_keyboard`→`delete:todo:{id}`; `reminders_keyboard`→`delete:reminder:{id}`); пустой список → `None`.
-- [ ] **Code**: добавить имена в фасад.
-- [ ] **Interface verification**: `pytest tests/bot/test_keyboards.py -v`.
-- [ ] **Logic tests**: `test_empty_list_returns_none` (для каждой); `test_callback_data_format` (`action:entity:id`); `test_todos_keyboard_has_complete_and_delete`; `test_callback_data_under_64_bytes`.
-- [ ] **Debugging**: `pytest tests/bot/test_keyboards.py -x`.
-- [ ] **Contract re-verification**: 4 пары action:entity, `None` при пустом, ≤64 байт.
-- [ ] **Lint**: `ruff check src/remindme/bot/`.
+- [x] **Task declaration**: Task 17 (`bot` — keyboards).
+- [x] **Contract tests** (`tests/bot/test_keyboards.py`): фасад `from remindme.bot import notes_keyboard, todos_keyboard, completed_keyboard, reminders_keyboard`; сигнатуры `(...) -> InlineKeyboardMarkup | None`.
+- [x] **Code**: 4 билдера (`notes_keyboard`→`delete:note:{id}`; `todos_keyboard`→`complete:todo:{id}`+`delete:todo:{id}`; `completed_keyboard`→`delete:todo:{id}`; `reminders_keyboard`→`delete:reminder:{id}`); пустой список → `None`.
+- [x] **Code**: добавить имена в фасад.
+- [x] **Interface verification**: `pytest tests/bot/test_keyboards.py -v`.
+- [x] **Logic tests**: `test_empty_list_returns_none` (для каждой); `test_callback_data_format` (`action:entity:id`); `test_todos_keyboard_has_complete_and_delete`; `test_callback_data_under_64_bytes`.
+- [x] **Debugging**: `pytest tests/bot/test_keyboards.py -x`.
+- [x] **Contract re-verification**: 4 пары action:entity, `None` при пустом, ≤64 байт.
+- [x] **Lint**: `ruff check src/remindme/bot/`.
 
 ---
 
