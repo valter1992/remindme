@@ -731,15 +731,15 @@ DTO `ParsedReminder`/`ParseError` — pydantic `kw_only`. `now` — параме
 
 **CRITICAL: `CODEMANIFEST` files — read-only. Контракт: callbacks.py; проверка владельца `(record_id, user_id)` на каждом действии.**
 
-- [ ] **Task declaration**: Task 21 (`bot` — handle_callback).
-- [ ] **Contract tests** (`tests/bot/test_callbacks.py`): фасад `from remindme.bot import handle_callback`; сигнатура `handle_callback(callback: CallbackQuery)`.
-- [ ] **Code**: `handle_callback` (`now`; разбор по `:`; не 3 части/не int→`callback.answer` без БД; сессия; ветвление `complete:todo`/`delete:note`/`delete:todo`(was True→completed-list / False→todos-list)/`delete:reminder`(`cancel_reminder_scenario`→already_sending/not_found/cancelled); успех→`callback.answer()`).
-- [ ] **Code**: добавить `handle_callback` в фасад `__init__.py`.
-- [ ] **Interface verification**: `pytest tests/bot/test_callbacks.py -v`.
-- [ ] **Logic tests** (перенос из дизайна **Test Stack Trace**): `test_complete_todo_callback` (Todo active→completed, `completed_at_utc` заполнен, `callback.answer` вызван, список перерисован); `test_callback_foreign_record_isolation` (`delete:reminder:15` чужой user_id=999 → «Запись уже изменена или удалена.», запись не изменена); `test_callback_malformed_payload_no_db` (не 3 части / нечисловой id); `test_delete_note_callback_redraw`; `test_delete_todo_was_completed_redraws_completed`; `test_delete_reminder_already_sending`.
-- [ ] **Debugging**: `pytest tests/bot/test_callbacks.py -x`.
-- [ ] **Contract re-verification**: 4 ветки action:entity, проверка владельца, перерисовка по статусу.
-- [ ] **Lint**: `ruff check src/remindme/bot/`.
+- [x] **Task declaration**: Task 21 (`bot` — handle_callback).
+- [x] **Contract tests** (`tests/bot/test_callbacks.py`): фасад `from remindme.bot import handle_callback`; сигнатура `handle_callback(callback: CallbackQuery)`.
+- [x] **Code**: `handle_callback` (`now`; разбор по `:`; не 3 части/не int→`callback.answer` без БД; сессия; ветвление `complete:todo`/`delete:note`/`delete:todo`(was True→completed-list / False→todos-list)/`delete:reminder`(`cancel_reminder_scenario`→already_sending/not_found/cancelled); успех→`callback.answer()`).
+- [x] **Code**: добавить `handle_callback` в фасад `__init__.py`.
+- [x] **Interface verification**: `pytest tests/bot/test_callbacks.py -v`.
+- [x] **Logic tests** (перенос из дизайна **Test Stack Trace**): `test_complete_todo_callback` (Todo active→completed, `completed_at_utc` заполнен, `callback.answer` вызван, список перерисован); `test_callback_foreign_record_isolation` (`delete:reminder:15` чужой user_id=999 → «Запись уже изменена или удалена.», запись не изменена); `test_callback_malformed_payload_no_db` (не 3 части / нечисловой id); `test_delete_note_callback_redraw`; `test_delete_todo_was_completed_redraws_completed`; `test_delete_reminder_already_sending`.
+- [x] **Debugging**: `pytest tests/bot/test_callbacks.py -x`.
+- [x] **Contract re-verification**: 4 ветки action:entity, проверка владельца, перерисовка по статусу.
+- [x] **Lint**: `ruff check src/remindme/bot/`.
 
 ---
 

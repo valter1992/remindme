@@ -3,10 +3,11 @@
 Фасадный модуль клетки экспонирует собственные сущности: форматтеры ответов и
 уведомлений (``to_local_string``, ``format_*``) и билдеры inline-клавиатур
 списков (``notes_keyboard``, ``todos_keyboard``, ``completed_keyboard``,
-``reminders_keyboard``). Фильтр приватных чатов, обработчики команд и
-сообщений (aiogram) и callback-роутер наполняются в последующих задачах клетки.
+``reminders_keyboard``). Фильтр приватных чатов, обработчики команд и сообщений
+(aiogram) и единый callback-роутер inline-кнопок (``handle_callback``).
 """
 
+from .callbacks import handle_callback
 from .formatter import (
     format_cancel_outcome,
     format_completed_list,
@@ -76,6 +77,7 @@ __all__ = [
     "format_todo_confirmation",
     "format_todo_error",
     "format_todo_list",
+    "handle_callback",
     "handle_db_error",
     "handle_group",
     "handle_remind_phrase",
