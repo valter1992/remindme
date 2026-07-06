@@ -798,15 +798,15 @@ DTO `ParsedReminder`/`ParseError` — pydantic `kw_only`. `now` — параме
 
 **CRITICAL: `CODEMANIFEST` files — read-only. Контракт: notifications.py; одна итерация = одна сессия; recovery 1 раз при старте.**
 
-- [ ] **Task declaration**: Task 24 (`worker` — run_reminder_worker).
-- [ ] **Contract tests** (`tests/worker/test_notifications.py`): фасад `from remindme.worker import run_reminder_worker`; сигнатура `run_reminder_worker(bot, session_factory, poll_interval)`.
-- [ ] **Code**: `run_reminder_worker` — startup-recovery (отдельная сессия, `recover_stuck_sending(now, 60)`); бесконечный цикл (`asyncio.sleep(poll_interval)`, `now=aware UTC`, одна сессия, `find_due_reminders`, для каждого `claim_for_sending`→`format_notification`→`bot.send_message`, `TelegramForbiddenError`→`mark_failed`+WARNING, `TelegramAPIError`→`record_send_failure`+WARNING, else `mark_sent`); закрытие сессии после цикла по due. Выделить тестируемый шаг одной итерации (для deterministic-тестов без `sleep`).
-- [ ] **Code**: добавить `run_reminder_worker` в фасад `__init__.py`.
-- [ ] **Interface verification**: `pytest tests/worker/test_notifications.py -v`.
-- [ ] **Logic tests** (перенос из дизайна **Test Stack Trace**): `test_worker_delivers_due_reminder` (Reminder due→claim→`bot.send_message` (chat_id=user_id)→`mark_sent`→`status="sent"`, `await_count==1`); `test_worker_forbidden_marks_failed` (`TelegramForbiddenError`→`status="failed"`, без повторов); `test_worker_transient_failure_schedules_retry` (иная ошибка→`record_send_failure`→`status="scheduled"`); `test_worker_recovery_at_startup` (зависшая `sending`→recovered перед циклом); `test_worker_one_session_per_iteration`; `test_worker_cancelled_not_sent`.
-- [ ] **Debugging**: `pytest tests/worker/test_notifications.py -x`.
-- [ ] **Contract re-verification**: recovery 1 раз, atomic claim, Forbidden→failed, одна сессия/итерация, без логов токена/текста.
-- [ ] **Lint**: `ruff check src/remindme/worker/`.
+- [x] **Task declaration**: Task 24 (`worker` — run_reminder_worker).
+- [x] **Contract tests** (`tests/worker/test_notifications.py`): фасад `from remindme.worker import run_reminder_worker`; сигнатура `run_reminder_worker(bot, session_factory, poll_interval)`.
+- [x] **Code**: `run_reminder_worker` — startup-recovery (отдельная сессия, `recover_stuck_sending(now, 60)`); бесконечный цикл (`asyncio.sleep(poll_interval)`, `now=aware UTC`, одна сессия, `find_due_reminders`, для каждого `claim_for_sending`→`format_notification`→`bot.send_message`, `TelegramForbiddenError`→`mark_failed`+WARNING, `TelegramAPIError`→`record_send_failure`+WARNING, else `mark_sent`); закрытие сессии после цикла по due. Выделить тестируемый шаг одной итерации (для deterministic-тестов без `sleep`).
+- [x] **Code**: добавить `run_reminder_worker` в фасад `__init__.py`.
+- [x] **Interface verification**: `pytest tests/worker/test_notifications.py -v`.
+- [x] **Logic tests** (перенос из дизайна **Test Stack Trace**): `test_worker_delivers_due_reminder` (Reminder due→claim→`bot.send_message` (chat_id=user_id)→`mark_sent`→`status="sent"`, `await_count==1`); `test_worker_forbidden_marks_failed` (`TelegramForbiddenError`→`status="failed"`, без повторов); `test_worker_transient_failure_schedules_retry` (иная ошибка→`record_send_failure`→`status="scheduled"`); `test_worker_recovery_at_startup` (зависшая `sending`→recovered перед циклом); `test_worker_one_session_per_iteration`; `test_worker_cancelled_not_sent`.
+- [x] **Debugging**: `pytest tests/worker/test_notifications.py -x`.
+- [x] **Contract re-verification**: recovery 1 раз, atomic claim, Forbidden→failed, одна сессия/итерация, без логов токена/текста.
+- [x] **Lint**: `ruff check src/remindme/worker/`.
 
 ---
 
