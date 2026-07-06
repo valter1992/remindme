@@ -484,10 +484,10 @@ async-фикстуру `session` (она используется logic-тест
 
 **CRITICAL: `CODEMANIFEST` files — read-only.**
 
-- [ ] Создать `src/remindme/services/__init__.py` (docstring, `__all__: list[str] = []`).
-- [ ] Создать `tests/services/__init__.py`.
-- [ ] Verify: `python -c "import remindme.services"`.
-- [ ] Lint: `ruff check src/remindme/services/`.
+- [x] Создать `src/remindme/services/__init__.py` (docstring, `__all__: list[str] = []`).
+- [x] Создать `tests/services/__init__.py`.
+- [x] Verify: `python -c "import remindme.services"`.
+- [x] Lint: `ruff check src/remindme/services/`.
 
 ---
 
