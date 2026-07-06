@@ -594,10 +594,10 @@ DTO `ParsedReminder`/`ParseError` — pydantic `kw_only`. `now` — параме
 
 **CRITICAL: `CODEMANIFEST` files — read-only.**
 
-- [ ] Создать `src/remindme/bot/__init__.py` (docstring, `__all__: list[str] = []`).
-- [ ] Создать `tests/bot/__init__.py`.
-- [ ] Verify: `python -c "import remindme.bot"`.
-- [ ] Lint: `ruff check src/remindme/bot/`.
+- [x] Создать `src/remindme/bot/__init__.py` (docstring, `__all__: list[str] = []`).
+- [x] Создать `tests/bot/__init__.py`.
+- [x] Verify: `python -c "import remindme.bot"`.
+- [x] Lint: `ruff check src/remindme/bot/`.
 
 ---
 
