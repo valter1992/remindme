@@ -614,15 +614,15 @@ DTO `ParsedReminder`/`ParseError` — pydantic `kw_only`. `now` — параме
 
 **CRITICAL: `CODEMANIFEST` files — read-only. Контракт: formatter.py; формат `DD.MM.YYYY в HH:MM`; суффикс `(IANA)` только в `format_reminder_confirmation`.**
 
-- [ ] **Task declaration**: Task 16 (`bot` — formatter).
-- [ ] **Contract tests** (`tests/bot/test_formatter.py`): фасад `from remindme.bot import to_local_string, format_notification, format_parse_error, format_cancel_outcome, format_reminder_confirmation, format_reminder_list, format_note_confirmation, format_note_list, format_note_error, format_todo_confirmation, format_todo_list, format_completed_list, format_todo_error`; сигнатуры.
-- [ ] **Code**: `to_local_string` (ISO→aware UTC→`ZoneInfo(timezone)`→`strftime("%d.%m.%Y в %H:%M")`); `format_notification` (`"Напоминание\n"+reminder.text`); `format_parse_error` (по `kind`: invalid_format/past/horizon_exceeded/empty_text/date_not_exist/text_too_long/nonexistent_time/ambiguous_time — **без `invalid_format` для todo**; здесь — ParseError-варианты); `format_cancel_outcome` (cancelled/not_found/already_sending); `format_reminder_confirmation` (с `(IANA)`); `format_reminder_list`; note/todo/completed confirmation/list/error.
-- [ ] **Code**: добавить имена в фасад `__init__.py`.
-- [ ] **Interface verification**: `pytest tests/bot/test_formatter.py -v`.
-- [ ] **Logic tests**: `test_to_local_string_moscow_offset` (`"2026-06-24T15:00:00+00:00"`, `"Europe/Moscow"` → локальная строка); `test_format_notification` (`"Напоминание\nX"`); `test_format_reminder_confirmation_has_iana_suffix`; `test_format_reminder_list_empty_and_filled`; `test_format_parse_error_each_kind`; `test_format_cancel_outcome_each_kind`; `test_format_todo_error_without_invalid_format` (только `empty_text`/`text_too_long`); note/todo/completed списки и подтверждения.
-- [ ] **Debugging**: `pytest tests/bot/test_formatter.py -x`.
-- [ ] **Contract re-verification**: формат локальной строки, `format_todo_error` без `invalid_format` (актуальный `.usages/formatter.md`), `format_notification` = `"Напоминание\n<text>"`.
-- [ ] **Lint**: `ruff check src/remindme/bot/`.
+- [x] **Task declaration**: Task 16 (`bot` — formatter).
+- [x] **Contract tests** (`tests/bot/test_formatter.py`): фасад `from remindme.bot import to_local_string, format_notification, format_parse_error, format_cancel_outcome, format_reminder_confirmation, format_reminder_list, format_note_confirmation, format_note_list, format_note_error, format_todo_confirmation, format_todo_list, format_completed_list, format_todo_error`; сигнатуры.
+- [x] **Code**: `to_local_string` (ISO→aware UTC→`ZoneInfo(timezone)`→`strftime("%d.%m.%Y в %H:%M")`); `format_notification` (`"Напоминание\n"+reminder.text`); `format_parse_error` (по `kind`: invalid_format/past/horizon_exceeded/empty_text/date_not_exist/text_too_long/nonexistent_time/ambiguous_time — **без `invalid_format` для todo**; здесь — ParseError-варианты); `format_cancel_outcome` (cancelled/not_found/already_sending); `format_reminder_confirmation` (с `(IANA)`); `format_reminder_list`; note/todo/completed confirmation/list/error.
+- [x] **Code**: добавить имена в фасад `__init__.py`.
+- [x] **Interface verification**: `pytest tests/bot/test_formatter.py -v`.
+- [x] **Logic tests**: `test_to_local_string_moscow_offset` (`"2026-06-24T15:00:00+00:00"`, `"Europe/Moscow"` → локальная строка); `test_format_notification` (`"Напоминание\nX"`); `test_format_reminder_confirmation_has_iana_suffix`; `test_format_reminder_list_empty_and_filled`; `test_format_parse_error_each_kind`; `test_format_cancel_outcome_each_kind`; `test_format_todo_error_without_invalid_format` (только `empty_text`/`text_too_long`); note/todo/completed списки и подтверждения.
+- [x] **Debugging**: `pytest tests/bot/test_formatter.py -x`.
+- [x] **Contract re-verification**: формат локальной строки, `format_todo_error` без `invalid_format` (актуальный `.usages/formatter.md`), `format_notification` = `"Напоминание\n<text>"`.
+- [x] **Lint**: `ruff check src/remindme/bot/`.
 
 ---
 
