@@ -51,14 +51,13 @@ Annotations: |
        5. Для каждого reminder в due:
           1. Если claim_for_sending(сессия, reminder.id, now) — True:
              1. text = format_notification(reminder)
-             2. try:
-                1. `bot`.send_message(chat_id=reminder.user_id, text=text)
-                2. mark_sent(сессия, reminder.id, now)
+             2. try: `bot`.send_message(chat_id=reminder.user_id, text=text)
              3. except TelegramForbiddenError: mark_failed(сессия, reminder.id);
                 лог WARNING (user_id, «bot blocked»)
-             4. except (иная ошибка send_message): failed=record_send_failure(сессия, reminder.id, now);
+             4. except TelegramAPIError (иные ошибки отправки aiogram): failed=record_send_failure(сессия, reminder.id, now);
                 лог WARNING (user_id, attempt_count, код ошибки, длительность)
-          2. Закрыть сессию
+             5. else: mark_sent(сессия, reminder.id, now)  # только при успешной отправке; ошибка БД здесь не маскируется под ошибку отправки
+       6. Закрыть сессию
 
     Requirements:
     - одна итерация цикла = одна сессия; recovery ровно один раз при старте

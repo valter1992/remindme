@@ -20,7 +20,7 @@ outcome = await create_todo_scenario(
     timezone=user.timezone,
 )
 if isinstance(outcome, TodoError):
-    # kind: invalid_format / empty_text / text_too_long
+    # kind: empty_text / text_too_long
     ...
 else:
     todo = outcome  # Todo ORM (status="active")
@@ -29,6 +29,7 @@ else:
 ## Формат срока
 
 - «ГГГГ-ММ-ДД ЧЧ:ММ | текст» → задача со сроком (aware UTC после локализации через `timezone`).
+- «|» присутствует, но левая часть — не дата → весь аргумент сохраняется как текст задачи без срока.
 - Текст без «|» → задача без срока (due_at_utc=None).
 - Срок в прошлом допускается (просроченная активная); доставки нет (у задач нет worker).
 - Без DST-валидации и горизонта (отличается от parse_remind_time).

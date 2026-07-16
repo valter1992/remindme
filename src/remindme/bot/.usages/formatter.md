@@ -68,7 +68,7 @@ format_note_list(notes, tz)          # список (локальное created_
 format_todo_list(todos, tz)          # активные (срок локально / «без срока» + текст) или «нет задач»
 format_completed_list(todos, tz)     # completed_at локально + текст или «нет выполненных»
 format_note_error(error)             # empty_text / text_too_long
-format_todo_error(error)             # invalid_format / empty_text / text_too_long
+format_todo_error(error)             # empty_text / text_too_long
 ```
 
 - Просроченные активные задачи отображаются в `/todos` (доставки нет).

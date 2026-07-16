@@ -1,0 +1,47 @@
+# RemindMe — production compose для VPS (схема B: pull из GHCR).
+#
+# В отличие от корневого ``docker-compose.yml`` (локальная разработка,
+# ``build: .``), этот файл тянет готовый образ из реестра — без сборки.
+#
+# Запуск: ``docker compose -f docker-compose.prod.yml up -d``
+#
+# Секреты — в ``./.env`` (``TELEGRAM_BOT_TOKEN``), они никогда не попадают в
+# образ и не коммитятся. Образ приватный, поэтому watchtower-у нужен
+# registry-auth: один раз выполните на VPS ``docker login ghcr.io`` — он создаст
+# ``~/.docker/config.json``, который монтируется в watchtower read-only (см.
+# комментарий к тому том-маунту ниже).
+#
+# Watchtower каждые 5 минут проверяет, не появился ли новый образ
+# ``remindme:latest``, и при обновлении плавно перезапускает контейнер бота.
+
+services:
+  bot:
+    image: ghcr.io/valter1992/remindme:latest
+    container_name: remindme
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Registry-auth от ``docker login ghcr.io``. Путь — АБСОЛЮТНЫЙ: ``~`` в
+      # compose не раскрывается. Если Docker запущен не от root, замените
+      # ``/root`` на домашний каталог пользователя (напр. ``/home/deploy``).
+      - /root/.docker/config.json:/config.json:ro
+    environment:
+      WATCHTOWER_POLL_INTERVAL: "300" # проверять реестр каждые 5 минут
+      WATCHTOWER_CLEANUP: "true" # удалять старые образы после обновления
+      WATCHTOWER_INCLUDE_RESTARTING: "true"
+      # Мониторить ТОЛЬКО контейнер бота — watchtower не трогает сам себя и
+      # другие контейнеры на этом VPS.
+      WATCHTOWER_SCOPE: "remindme"
+    # Позиционный аргумент = список имён контейнеров под наблюдением; дублирует
+    # WATCHTOWER_SCOPE для надёжности (защита от случайного удаления одного из
+    # двух параметров).
+    command: remindme

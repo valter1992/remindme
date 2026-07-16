@@ -242,7 +242,7 @@ Annotations: |
 
     Algorithm:
     1. UPDATE Reminder set status='cancelled' WHERE id=`reminder_id` AND user_id=`user_id` AND status='scheduled'
-    2. commit
+    2. commit (при SQLAlchemyError — rollback + re-raise)
     3. Если result.rowcount == 1 — вернуть CancelOutcome(kind='cancelled')
     4. Иначе SELECT status WHERE id AND user_id: status='sending' → 'already_sending'; иначе → 'not_found'
 
@@ -268,7 +268,7 @@ Annotations: |
 
     Algorithm:
     1. UPDATE User set timezone=`timezone`, updated_at_utc=now_iso WHERE telegram_user_id=`telegram_user_id`
-    2. commit
+    2. commit (при SQLAlchemyError — rollback + re-raise)
     3. Вернуть result.rowcount == 1
 
     Constraints:
@@ -326,7 +326,7 @@ Annotations: |
 
     Algorithm:
     1. delete Note where id==`note_id` and user_id==`user_id`
-    2. commit
+    2. commit (при SQLAlchemyError — rollback + re-raise)
     3. Вернуть result.rowcount == 1
 
     Constraints:
@@ -395,7 +395,7 @@ Annotations: |
     1. now → now_iso
     2. UPDATE Todo set status='completed', completed_at_utc=now_iso
        WHERE id==`todo_id` AND user_id==`user_id` AND status='active'
-    3. commit
+    3. commit (при SQLAlchemyError — rollback + re-raise)
     4. Вернуть result.rowcount == 1
 
     Constraints:
@@ -413,7 +413,7 @@ Annotations: |
     Algorithm:
     1. Определить статус записи по (todo_id, user_id); если нет → вернуть None
     2. Удалить запись по (todo_id, user_id)
-    3. commit
+    3. commit (при SQLAlchemyError — rollback + re-raise)
     4. Вернуть True/False по статусу до удаления
 
     Requirements:
@@ -459,7 +459,7 @@ Annotations: |
     Algorithm:
     1. Привести `now` к ISO 8601 UTC строке now_iso
     2. update Reminder set status="sending", locked_at_utc=now_iso where id==`reminder_id` and status=="scheduled"
-    3. commit
+    3. commit (при SQLAlchemyError — rollback + re-raise)
     4. Вернуть result.rowcount == 1
 
     Requirements:
@@ -482,7 +482,7 @@ Annotations: |
     Algorithm:
     1. Привести `now` к ISO 8601 UTC строке now_iso
     2. update Reminder set status="sent", sent_at_utc=now_iso where id==`reminder_id`
-    3. commit
+    3. commit (при SQLAlchemyError — rollback + re-raise)
 
     Requirements:
     - проставляет status="sent" и sent_at_utc
@@ -503,7 +503,7 @@ Annotations: |
 
     Algorithm:
     1. UPDATE Reminder set status='failed' WHERE id=`reminder_id` AND status='sending'
-    2. commit
+    2. commit (при SQLAlchemyError — rollback + re-raise)
     3. Вернуть result.rowcount == 1
 
     Constraints:
@@ -527,7 +527,7 @@ Annotations: |
     3. Если new_count >= 4 — вызвать `mark_failed` и вернуть True
     4. Иначе: delay = {1:30, 2:120, 3:600}[new_count]; UPDATE status='scheduled',
        attempt_count=new_count, next_attempt_at_utc=(now+delay) в ISO 8601 UTC, locked_at_utc=NULL WHERE id
-    5. commit; вернуть False
+    5. commit (при SQLAlchemyError — rollback + re-raise); вернуть False
 
     Requirements:
     - расписание повторов 30/120/600 по attempt_count (ключ — new_count после инкремента)
@@ -552,7 +552,7 @@ Annotations: |
     1. threshold_iso = (now - `stale_after_seconds`) в ISO 8601 UTC
     2. UPDATE Reminder set status='scheduled', locked_at_utc=NULL
        WHERE status='sending' AND locked_at_utc <= threshold_iso
-    3. commit
+    3. commit (при SQLAlchemyError — rollback + re-raise)
     4. Вернуть result.rowcount
 
     Requirements:

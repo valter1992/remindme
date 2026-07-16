@@ -57,6 +57,10 @@ Annotations: |
 
   Новые команды /note /notes /todo /todos /completed и единый callback-роутер `handle_callback` (<action>:<entity>:<id>); проверка владельца по (id, user_id) на каждом callback-действии; после действия список обновляется через editMessageText (перерисовка по статусу записи).
 
+  Текущий момент: каждый пишущий handler первым шагом фиксирует aware-UTC момент now и передаёт его в `ensure_user`
+  и далее в сценарии/репозитории; datetime.now() внутри handler'ов и `ensure_user` не вызывается (детерминированные тесты).
+  `handle_callback` также фиксирует now один раз на вход.
+
 ---
 
 "PrivateOnly()":
@@ -80,7 +84,7 @@ Annotations: |
 
       Use `aiogram` (тип Message).
 
-"ensure_user(session: AsyncSession, telegram_user_id: int, timezone: str) -> user: User":
+"ensure_user(session: AsyncSession, telegram_user_id: int, timezone: str, now: datetime) -> user: User":
   location: handlers.py
   annotations: |
     Идемпотентное создание или обновление `User`; общая логика регистрации для /start и авто-регистрации.
@@ -88,19 +92,24 @@ Annotations: |
     `session`: открытая AsyncSession
     `telegram_user_id`: идентификатор Telegram-пользователя
     `timezone`: зона нового пользователя (передаётся вызывающей стороной из настроек)
+    `now`: фиксированный текущий момент (aware UTC) для created_at_utc/updated_at_utc
     `user`: созданная либо существующая запись
 
     Algorithm:
-    1. Найти `User` по `telegram_user_id`
-    2. Если записи нет — создать с `timezone`, проставить created_at_utc и updated_at_utc текущим моментом, добавить и зафиксировать
-    3. Если запись есть — обновить updated_at_utc текущим моментом и зафиксировать
-    4. Вернуть `user`
+    1. now_iso = `now` → ISO 8601 UTC
+    2. Найти `User` по `telegram_user_id`
+    3. Если записи нет — создать с `timezone`, created_at_utc=updated_at_utc=now_iso, добавить и зафиксировать.
+       При IntegrityError (конкурентная регистрация того же `telegram_user_id` между SELECT и commit) — rollback,
+       повторный SELECT существующей записи по `telegram_user_id` и вернуть её (идемпотентность).
+    4. Если запись есть — обновить updated_at_utc=now_iso и зафиксировать
+    5. Вернуть `user`
 
     Requirements:
     - Операция идемпотентна: повторный вызов с тем же `telegram_user_id` не создаёт дубль
     - При конкурентной регистрации нарушение UNIQUE обрабатывается повторным поиском существующей записи
+    - `now` передаётся вызывающей стороной; datetime.now() внутри не вызывается — детерминированные тесты
 
-    Use `models` (создание `User`); `sqlalchemy` (add/commit/rollback); `settings` (источник `timezone`).
+    Use `models` (создание `User`); `sqlalchemy` (add/commit/rollback); `settings` (источник `timezone`); `conventions` (ISO 8601).
 
 "cmd_start(message: Message)":
   location: handlers.py
@@ -111,9 +120,10 @@ Annotations: |
 
     Algorithm:
     1. Открыть сессию через переданную фабрику сессий
-    2. Взять timezone из настроек через `get_settings`
-    3. Вызвать `ensure_user` для автора сообщения
-    4. Ответить приветствием и краткой инструкцией
+    2. now = aware UTC текущего момента
+    3. Взять timezone из настроек через `get_settings`
+    4. Вызвать `ensure_user`(сессия, message.from_user.id, timezone, now) для автора сообщения
+    5. Ответить приветствием и краткой инструкцией
 
     Requirements:
     - Повторный /start не дублирует запись, обновляя updated_at_utc
@@ -148,9 +158,10 @@ Annotations: |
 
     Algorithm:
     1. Открыть сессию через переданную фабрику сессий
-    2. Взять timezone из настроек через `get_settings`
-    3. Вызвать `ensure_user` для автора сообщения
-    4. Ответить подсказкой написать «напомни ...» или использовать /help
+    2. now = aware UTC текущего момента
+    3. Взять timezone из настроек через `get_settings`
+    4. Вызвать `ensure_user`(сессия, message.from_user.id, timezone, now) для автора сообщения
+    5. Ответить подсказкой написать «напомни ...» или использовать /help
 
     Constraints:
     - Не создаёт напоминания/заметки/задачи (появляются на этапе 2+); только регистрирует пользователя
@@ -179,9 +190,9 @@ Annotations: |
 
     Algorithm:
     1. Открыть сессию через session_factory
-    2. user = ensure_user(сессия, message.from_user.id, `settings`.DEFAULT_TIMEZONE)
-    3. Если длина `message`.text превышает 1000 — ответить об ограничении и выйти
-    4. now = aware UTC текущего момента
+    2. now = aware UTC текущего момента
+    3. user = ensure_user(сессия, message.from_user.id, `settings`.DEFAULT_TIMEZONE, now)
+    4. Если длина `message`.text превышает 1000 — ответить об ограничении и выйти
     5. outcome = create_reminder_scenario(сессия, user.telegram_user_id, message.text, now, user.timezone, `settings`.DEFAULT_REMINDER_TIME)
     6. Если outcome — ParseError → message.answer(`format_parse_error`(outcome))
     7. Иначе → message.answer(`format_reminder_confirmation`(outcome, user.timezone))
@@ -201,10 +212,11 @@ Annotations: |
 
     Algorithm:
     1. Открыть сессию через session_factory
-    2. user = ensure_user(сессия, message.from_user.id, `settings`.DEFAULT_TIMEZONE)
-    3. reminders = list_reminders(сессия, user.telegram_user_id)
-    4. kb = `reminders_keyboard`([r.id for r in reminders])
-    5. message.answer(`format_reminder_list`(reminders, user.timezone), reply_markup=kb)
+    2. now = aware UTC текущего момента
+    3. user = ensure_user(сессия, message.from_user.id, `settings`.DEFAULT_TIMEZONE, now)
+    4. reminders = list_reminders(сессия, user.telegram_user_id)
+    5. kb = `reminders_keyboard`([r.id for r in reminders])
+    6. message.answer(`format_reminder_list`(reminders, user.timezone), reply_markup=kb)
 
     Requirements:
     - список содержит только записи текущего пользователя
@@ -219,7 +231,7 @@ Annotations: |
     `message`: входящее сообщение (фильтр команды timezone и PrivateOnly)
 
     Algorithm:
-    1. Открыть сессию; user = ensure_user(...)
+    1. Открыть сессию; now = aware UTC текущего момента; user = ensure_user(сессия, message.from_user.id, `settings`.DEFAULT_TIMEZONE, now)
     2. Извлечь аргумент зоны из сообщения; если пуст — ответить подсказкой формата IANA
     3. updated = `set_timezone_scenario`(сессия, user.telegram_user_id, аргумент, now)
     4. updated → «часовой пояс изменён на {аргумент}»; иначе → «неизвестный пояс, используйте IANA, например Europe/Moscow»
@@ -238,7 +250,7 @@ Annotations: |
     `message`: входящее сообщение (фильтр команды cancel и PrivateOnly)
 
     Algorithm:
-    1. Открыть сессию; user = ensure_user(...)
+    1. Открыть сессию; now = aware UTC текущего момента; user = ensure_user(сессия, message.from_user.id, `settings`.DEFAULT_TIMEZONE, now)
     2. Извлечь id напоминания из аргумента команды; если аргумент пуст/нечисловой — ответить подсказкой формата
     3. outcome = `cancel_reminder_scenario`(сессия, user.telegram_user_id, id)
     4. message.answer(`format_cancel_outcome`(outcome))
@@ -254,7 +266,7 @@ Annotations: |
     Обработчик /note → создание заметки.
 
     Algorithm:
-    1. Сессия; user=ensure_user(...)
+    1. Сессия; now = aware UTC текущего момента; user=ensure_user(сессия, message.from_user.id, `settings`.DEFAULT_TIMEZONE, now)(...)
     2. raw=аргумент /note
     3. outcome=`create_note_scenario`(session, user.telegram_user_id, raw, now)
     4. NoteError → `format_note_error`; иначе → `format_note_confirmation`
@@ -267,7 +279,7 @@ Annotations: |
     Список заметок + inline-«Удалить».
 
     Algorithm:
-    1. Сессия; user=ensure_user
+    1. Сессия; now = aware UTC текущего момента; user=ensure_user(сессия, message.from_user.id, `settings`.DEFAULT_TIMEZONE, now)
     2. notes=`list_notes`
     3. text=`format_note_list`(notes, user.timezone); kb=`notes_keyboard`([n.id…])
     4. message.answer(text, reply_markup=kb)
@@ -280,7 +292,7 @@ Annotations: |
     Обработчик /todo → создание задачи.
 
     Algorithm:
-    1. Сессия; user=ensure_user
+    1. Сессия; now = aware UTC текущего момента; user=ensure_user(сессия, message.from_user.id, `settings`.DEFAULT_TIMEZONE, now)
     2. raw=аргумент /todo
     3. outcome=`create_todo_scenario`(session, user.telegram_user_id, raw, now, user.timezone)
     4. TodoError → `format_todo_error`; иначе → `format_todo_confirmation`(outcome, user.timezone)
@@ -293,7 +305,7 @@ Annotations: |
     Активные задачи + «Выполнено»/«Удалить».
 
     Algorithm:
-    1. Сессия; user=ensure_user
+    1. Сессия; now = aware UTC текущего момента; user=ensure_user(сессия, message.from_user.id, `settings`.DEFAULT_TIMEZONE, now)
     2. todos=`list_todos`
     3. text=`format_todo_list`; kb=`todos_keyboard`([t.id…])
     4. message.answer(text, reply_markup=kb)
@@ -306,7 +318,7 @@ Annotations: |
     Выполненные задачи + «Удалить».
 
     Algorithm:
-    1. Сессия; user=ensure_user
+    1. Сессия; now = aware UTC текущего момента; user=ensure_user(сессия, message.from_user.id, `settings`.DEFAULT_TIMEZONE, now)
     2. todos=`list_completed`
     3. text=`format_completed_list`; kb=`completed_keyboard`([t.id…])
     4. message.answer(text, reply_markup=kb)
@@ -343,9 +355,9 @@ Annotations: |
 
     Algorithm:
     1. Если `message`.text не начинается с «напомни» (re.IGNORECASE) — пропустить
-    2. Открыть сессию; user = ensure_user(…)
+    2. Открыть сессию; now = aware UTC; user = ensure_user(сессия, message.from_user.id, `settings`.DEFAULT_TIMEZONE, now)
     3. Если длина `message`.text превышает 1000 — ответить об ограничение
-    4. now = aware UTC; outcome = create_reminder_scenario(сессия, user.telegram_user_id, message.text, now, user.timezone, `settings`.DEFAULT_REMINDER_TIME)
+    4. outcome = create_reminder_scenario(сессия, user.telegram_user_id, message.text, now, user.timezone, `settings`.DEFAULT_REMINDER_TIME)
     5. ParseError → `format_parse_error`; иначе → `format_reminder_confirmation`
 
     Constraints:
@@ -430,7 +442,8 @@ Annotations: |
 
     Algorithm:
     1. local = `to_local_string`(reminder.remind_at_utc, `timezone`)
-    2. Вернуть подтверждение с local и reminder.text
+    2. Вернуть подтверждение вида «Напоминание создано» + перенос строки + reminder.text + перенос строки +
+       local + « (» + `timezone` + «)» (формат по примеру ТЗ: «24.06.2026 в 12:15 (Europe/Moscow)»)
 
     Use `models` (Reminder).
 
@@ -479,7 +492,7 @@ Annotations: |
 
     Constraints:
     - работает со строкой ISO 8601, как хранится в БД (reminder.remind_at_utc)
-    - фиксированный человекочитаемый формат локальной строки «DD.MM.YYYY HH:MM», единый для всех форматтеров клетки bot
+    - фиксированный человекочитаемый формат локальной строки «DD.MM.YYYY в HH:MM» (с разделителем «в»), единый для всех форматтеров клетки bot; суффикс часового пояса «(IANA)» добавляется только в подтверждении создания (`format_reminder_confirmation`) по примеру ТЗ
 
 "format_note_confirmation(note: Note) -> text: str":
   location: formatter.py
@@ -530,7 +543,7 @@ Annotations: |
 "format_todo_error(error: TodoError) -> text: str":
   location: formatter.py
   annotations: |
-    Текст отказа по kind: invalid_format (пример «ГГГГ-ММ-ДД ЧЧ:ММ | текст») / empty_text / text_too_long.
+    Текст отказа по kind: empty_text / text_too_long.
 
     Use `todos` (TodoError).
 

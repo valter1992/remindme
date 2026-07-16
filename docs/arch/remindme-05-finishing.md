@@ -163,7 +163,7 @@ Description: |
 (`TELEGRAM_BOT_TOKEN`) и не логируется.
 
 ## Предусловия
-- Python 3.10+, активированный venv с зависимостями из `pyproject.toml`
+- Python 3.12+, активированный venv с зависимостями из `pyproject.toml`
 - `TELEGRAM_BOT_TOKEN` от BotFather — в `.env` или переменной окружения
 - `DATABASE_URL` (по умолчанию `sqlite+aiosqlite:///data/remindme.db`); директория `data/` создаётся автоматически
 
@@ -197,7 +197,7 @@ Compose поднимает сервис бота: применяет мигра�
 RemindMe — однопроцессное приложение. Образ содержит код и зависимости; секреты и база данных пробрасываются снаружи.
 
 ## Dockerfile
-- Базовый образ Python 3.10+ slim; зависимости из `pyproject.toml` в venv.
+- Базовый образ Python 3.12+ slim; зависимости из `pyproject.toml` в venv.
 - Копируются `src/`, `alembic/`, `alembic.ini`, `pyproject.toml`.
 - Рабочая директория — корень проекта; точка входа `python -m remindme.main` (модуль `main` сам применяет миграции через `apply_migrations`).
 - `data/` НЕ создаётся в образе — монтируется томом; `.env` НЕ копируется в образ (`COPY .env` запрещён).

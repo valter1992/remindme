@@ -1,0 +1,17 @@
+# RemindMe — запуск бота через Docker Compose.
+#
+# Один сервис бота. Long polling — порты наружу не выставляются; контейнер
+# сам инициирует исходящие соединения к Telegram API. Секреты и настройки —
+# через ``.env`` (``env_file``), данные SQLite — в примонтированном томе
+# ``./data`` (WAL переживает ``restart``). Миграции применяются в процессе
+# (``apply_migrations``), отдельный shell-entrypoint не нужен.
+
+services:
+  bot:
+    build: .
+    container_name: remindme
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data

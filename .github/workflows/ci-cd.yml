@@ -1,0 +1,105 @@
+# RemindMe — CI/CD (схема B: CI собирает образ и пушит в GHCR; VPS тянет сам).
+#
+# Два job'а:
+#   - ``test``: ruff + pytest. Запускается и на PR, и на push в ``main``.
+#   - ``build``: сборка Docker-образа и публикация в GHCR. Запускается
+#     ТОЛЬКО на push в ``main`` (см. ``if:``) — PR (в т.ч. из форка) никогда
+#     не триггерят сборку/пуш. ``pull_request_target`` намеренно не используется
+#     (опасно с форками).
+#
+# Секреты: ``TELEGRAM_BOT_TOKEN`` здесь не нужен и не используется — он живёт
+# только на VPS в ``.env``. Для пуша в GHCR хватает встроенного ``GITHUB_TOKEN``
+# (``packages: write``); отдельный PAT не требуется.
+#
+# Версии actions зафиксированы на актуальных мажорах (v4/v5/v6/v3).
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  test:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install dependencies
+        # Editable-установка со всеми dev-зависимостями (pytest, ruff).
+        run: pip install -e ".[test]"
+
+      - name: Ruff check
+        run: ruff check src/ tests/
+
+      - name: Ruff format check
+        run: ruff format --check src/ tests/
+
+      - name: Pytest
+        run: pytest tests/ -x
+
+  build:
+    name: Build & Push image
+    needs: test
+    # Ворота fork-safety: только реальный push в main собирает и публикует
+    # образ. PR никогда не дойдут сюда — ни из своего репо, ни из форка.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        # Встроенный GITHUB_TOKEN с правом packages:write — PAT не нужен.
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/valter1992/remindme
+          tags: |
+            type=sha
+            type=raw,value=latest
+            type=ref,event=branch
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Кэш слоёв в GitHub Actions cache — ускоряет повторные сборки.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

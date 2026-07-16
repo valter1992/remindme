@@ -219,3 +219,7 @@ __marimo__/
 
 # IDE
 .idea/
+
+# RemindMe runtime data (SQLite БД + WAL) — не коммитится, монтируется снаружи.
+# ``.env``, ``.venv`` и ``__pycache__/`` уже исключены секциями выше.
+data/

@@ -16,7 +16,7 @@ Code in this repository MUST prioritize:
 
 ## Constraints
 
-- Compatible with Python 3.10 and above only
+- Compatible with Python 3.12 and above only
 - Use `pyproject.toml` for configuration
 - Execute all code within a virtualenv environment — create it if missing
 
@@ -45,7 +45,7 @@ All subsequent import patterns MUST follow relative imports for intra-package re
 
 RULES:
 1. Use pydantic for all data models and request/response schemas
-2. All data model classes MUST use `kw_only=True` (Python 3.10+ syntax)
+2. All data model classes MUST use `kw_only=True` (Python 3.12+ syntax)
 3. Set empty defaults (empty string, zero, etc.) for all fields — use `None` only for fields that represent the explicit absence of a value
 
 ## Logging
@@ -187,7 +187,7 @@ All third-party libraries **MUST** be added to `pyproject.toml`. Specify a minim
 
 ## Constraints
 
-- Test code must be compatible with Python 3.10 and above
+- Test code must be compatible with Python 3.12 and above
 
 ## Tools
 
@@ -261,7 +261,7 @@ All test libraries **MUST** be added to `pyproject.toml` in the `[project.option
 
 # Validation Commands
 
-All commands must run in a virtualenv environment. Python 3.10+ compatibility required.
+All commands must run in a virtualenv environment. Python 3.12+ compatibility required.
 
 | Purpose                  | Command                                   |
 |--------------------------|-------------------------------------------|

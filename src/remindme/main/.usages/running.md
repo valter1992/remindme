@@ -8,7 +8,7 @@
 (`TELEGRAM_BOT_TOKEN`) и не логируется.
 
 ## Предусловия
-- Python 3.10+, активированный venv с зависимостями из `pyproject.toml`
+- Python 3.12+, активированный venv с зависимостями из `pyproject.toml`
 - `TELEGRAM_BOT_TOKEN` от BotFather — в `.env` или переменной окружения
 - `DATABASE_URL` (по умолчанию `sqlite+aiosqlite:///data/remindme.db`); директория `data/` создаётся автоматически
 

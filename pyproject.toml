@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "remindme"
+version = "0.1.0"
+description = "RemindMe — Telegram-бот-напоминалка с заметками и задачами."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.5",
+    "pydantic-settings>=2.0",
+    "sqlalchemy[asyncio]>=2",
+    "aiosqlite>=0.19",
+    "aiogram>=3",
+    "alembic>=1.13",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=4",
+    "ruff>=0.1",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "C4"]
+
+[tool.ruff.lint.isort]
+# Локальный каталог ``alembic/`` (миграции) затеняет установленный пакет
+# ``alembic`` — явно считаем его сторонним, чтобы isort не дробил импорты.
+known-third-party = ["alembic"]
+
+[tool.ruff.format]
+quote-style = "double"
